@@ -7,7 +7,7 @@ import plotly.express as px
 # ---------- PAGE CONFIG ----------
 st.set_page_config(page_title="GovAI Sentiment Lens", page_icon="📊", layout="wide")
 st.title("📊 GovAI Sentiment Lens")
-st.caption("POC – AI-powered public feedback analysis (with Frustrated sentiment category)")
+st.caption("POC – AI-powered public feedback analysis")
 
 # ---------- OPENAI CLIENT ----------
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
@@ -124,26 +124,35 @@ if st.button("Run AI Batch Classification"):
             output = resp.choices[0].message.content.strip()
             st.text_area("AI Batch Output (CSV)", output, height=150)
 
-            # Parse AI output into dataframe
+            # ----- SAFE PARSE & MERGE -----
             lines = [l.strip() for l in output.splitlines() if "," in l]
-            sentiments, topics = [], []
+            parsed = []
             for line in lines:
-                parts = line.split(",")
-                if len(parts) >= 3:
-                    sentiments.append(parts[1].strip().title())
-                    topics.append(parts[2].strip())
-            if len(sentiments) == len(df):
-                df["sentiment"] = sentiments
-                df["topic"] = topics
-                st.success("✅ AI classification updated.")
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) >= 3 and parts[0].isdigit():
+                    parsed.append({
+                        "id": int(parts[0]),
+                        "sentiment": parts[1].title(),
+                        "topic": parts[2]
+                    })
+
+            if parsed:
+                parsed_df = pd.DataFrame(parsed)
+                df = pd.merge(df, parsed_df, on="id", how="left", suffixes=("", "_ai"))
+                df["sentiment"] = df["sentiment_ai"].combine_first(df["sentiment"])
+                df["topic"] = df["topic_ai"].combine_first(df["topic"])
+                df.drop(columns=["sentiment_ai", "topic_ai"], inplace=True)
+                st.success(f"✅ Updated {len(parsed_df)} rows from AI output.")
             else:
-                st.warning("⚠️ Could not map all lines — showing raw output above.")
+                st.warning("⚠️ No valid lines detected — showing raw output above.")
+
         except Exception as e:
             st.error(f"⚠️ OpenAI error: {e}")
 
 # ---------- 6. DASHBOARD ----------
+st.subheader("📊 Sentiment Distribution")
 sent_count = df["sentiment"].value_counts().reset_index()
-sent_count.columns = ["sentiment", "count"]  # ✅ Rename columns
+sent_count.columns = ["sentiment", "count"]
 
 fig = px.bar(
     sent_count,
