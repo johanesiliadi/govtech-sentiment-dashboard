@@ -3,4 +3,3 @@ pandas
 openai
 plotly
 snscrape
-snscrape
