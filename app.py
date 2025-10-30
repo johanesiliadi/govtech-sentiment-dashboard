@@ -101,6 +101,65 @@ with st.form("add_form", clear_on_submit=True):
 
 df = st.session_state.df
 
+# ---------- AI BATCH CLASSIFICATION ----------
+st.subheader("🤖 AI Batch Classification (sentiment + topic + frustration detection)")
+st.write("Classify all feedback using AI and save results back to CSV.")
+
+if st.button("Run AI Batch Classification"):
+    if client is None:
+        st.warning("⚠️ No OpenAI key found, using local classification only.")
+    else:
+        prompt = """
+        You are analyzing citizen feedback for Singapore government digital services.
+
+        For each feedback line below, classify into:
+        - Sentiment: One of [Positive, Negative, Neutral, Frustrated]
+        - Topic: One of [Housing, Transport, Digital/Singpass, Social/Financial, Health, Education, Elderly/Inclusion, e-Payment, Others]
+
+        Rules:
+        - "keeps timing out", "every time I try", "always fails", "so annoying", "this is ridiculous" → Frustrated
+        - service down / not working / error → Negative
+        - thanks / appreciate / good job → Positive
+        - info-seeking / factual → Neutral
+
+        Respond ONLY in CSV format:
+        id,sentiment,topic
+        """
+        for i, msg in enumerate(df["message"], start=1):
+            prompt += f"{i}. {msg}\n"
+
+        try:
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}]
+            )
+            output = resp.choices[0].message.content.strip()
+
+            lines = [l.strip() for l in output.splitlines() if "," in l]
+            parsed = []
+            for line in lines:
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) >= 3 and parts[0].isdigit():
+                    parsed.append({
+                        "id": int(parts[0]),
+                        "sentiment": parts[1].title(),
+                        "topic": parts[2]
+                    })
+
+            if parsed:
+                parsed_df = pd.DataFrame(parsed)
+                df = pd.merge(df, parsed_df, on="id", how="left", suffixes=("", "_ai"))
+                df["sentiment"] = df["sentiment_ai"].combine_first(df["sentiment"])
+                df["topic"] = df["topic_ai"].combine_first(df["topic"])
+                df.drop(columns=["sentiment_ai", "topic_ai"], inplace=True)
+                st.session_state.df = df
+                save_data(st.session_state.df)
+                st.success(f"✅ Updated {len(parsed_df)} rows from AI output and saved.")
+            else:
+                st.warning("⚠️ AI did not return valid CSV lines.")
+        except Exception as e:
+            st.error(f"⚠️ OpenAI error: {e}")
+
 # ---------- DASHBOARD ----------
 st.subheader("📊 Sentiment Distribution")
 sent_count = df["sentiment"].value_counts().reset_index()
