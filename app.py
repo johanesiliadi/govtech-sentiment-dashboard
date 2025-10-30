@@ -5,9 +5,8 @@ import os
 
 # ---------- PAGE CONFIG ----------
 st.set_page_config(page_title="GovAI Sentiment Lens", page_icon="📊", layout="wide")
-
 st.title("📊 GovAI Sentiment Lens")
-st.caption("POC – AI-powered public feedback analysis (CSV + manual input + AI classification)")
+st.caption("POC – AI-powered public feedback analysis (CSV + manual input + batch AI classification)")
 
 # ---------- OPENAI CLIENT (optional) ----------
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
@@ -26,7 +25,6 @@ df = load_data()
 
 # ---------- 2. MANUAL INPUT SECTION ----------
 st.subheader("➕ Add new citizen feedback")
-
 with st.form("add_form", clear_on_submit=True):
     new_msg = st.text_area("Citizen feedback text", help="E.g. 'Cannot login to Singpass', 'Thanks for fast response', etc.")
     submitted = st.form_submit_button("Add to dashboard")
@@ -39,7 +37,7 @@ with st.form("add_form", clear_on_submit=True):
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         st.success("✅ Feedback added below.")
 
-# ---------- 3. LOCAL (NO-AI) FALLBACK CLASSIFIERS ----------
+# ---------- 3. LOCAL FALLBACK CLASSIFIERS ----------
 def local_sentiment(text: str) -> str:
     t = text.lower()
     neg = ["cannot", "not working", "slow", "error", "complain", "bad", "fail", "issue", "problem", "frustrating", "timeout", "crash"]
@@ -49,7 +47,6 @@ def local_sentiment(text: str) -> str:
     if any(w in t for w in pos):
         return "Positive"
     return "Neutral"
-
 
 def local_topic(text: str) -> str:
     t = text.lower()
@@ -65,77 +62,54 @@ def local_topic(text: str) -> str:
         return "e-Payment"
     return "Others"
 
-
-# start with local so dashboard is never empty
 df["sentiment"] = df["message"].apply(local_sentiment)
 df["topic"] = df["message"].apply(local_topic)
 
-# ---------- 4. AI CLASSIFICATION ----------
-st.subheader("🤖 AI Classification (sentiment + topic)")
-st.write("Click the button below to let AI re-classify all rows. If no OpenAI key is set, we keep local rules.")
+# ---------- 4. BATCH AI CLASSIFICATION ----------
+st.subheader("🤖 AI Batch Classification (sentiment + topic)")
+st.write("Classify all feedback at once using a single AI call. If no API key, fallback to local rules.")
 
-
-def classify_ai(text: str):
-    # no key → fallback
+if st.button("Run AI Batch Classification"):
     if client is None:
-        return local_sentiment(text), local_topic(text)
+        st.warning("⚠️ No OpenAI key found, using local classification only.")
+    else:
+        # Build batch prompt
+        prompt = "Classify each feedback line below as Sentiment (Positive, Negative, Neutral) and Topic.\n"
+        prompt += "Topics: [Housing, Transport, Digital/Singpass, Social/Financial, Health, Elderly/Inclusion, e-Payment, Others, Frustated People]\n\n"
+        for i, msg in enumerate(df["message"], start=1):
+            prompt += f"{i}. {msg}\n"
+        prompt += "\nRespond ONLY in CSV format: id,sentiment,topic"
 
-    prompt = f"""
-    You are analysing citizen feedback for Singapore government services.
-    Classify the feedback into:
-    - Sentiment: Positive, Negative, or Neutral
-    - Topic: choose ONE from this list exactly:
-      [Housing, Transport, Digital/Singpass, Social/Financial, Health, Elderly/Inclusion, e-Payment, Others]
+        try:
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}]
+            )
+            output = resp.choices[0].message.content.strip()
+            st.text_area("AI Batch Output (CSV)", output, height=150)
 
-    Rules:
-    - Any complaint, inconvenience, frustration, or failure = Negative
-    - Any praise, gratitude, satisfaction = Positive
-    - Objective or factual statements = Neutral
-
-    Respond strictly in this format:
-    sentiment: <value>
-    topic: <value>
-
-    Feedback: {text}
-    """
-
-    resp = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
-
-    content = resp.choices[0].message.content
-    sent = local_sentiment(text)
-    top = local_topic(text)
-
-    for line in content.splitlines():
-        line = line.strip()
-        if line.lower().startswith("sentiment:"):
-            sent = line.split(":", 1)[1].strip().title()
-        if line.lower().startswith("topic:"):
-            top = line.split(":", 1)[1].strip()
-
-    return sent, top
-
-
-if st.button("Run AI on all feedback"):
-    ai_sents = []
-    ai_topics = []
-    for _, row in df.iterrows():
-        s, t = classify_ai(row["message"])
-        ai_sents.append(s)
-        ai_topics.append(t)
-    df["sentiment"] = ai_sents
-    df["topic"] = ai_topics
-    st.success("✅ AI classification complete.")
+            # Parse AI output into dataframe
+            lines = [l.strip() for l in output.splitlines() if "," in l]
+            sentiments, topics = [], []
+            for idx, line in enumerate(lines):
+                parts = line.split(",")
+                if len(parts) >= 3:
+                    sentiments.append(parts[1].strip().title())
+                    topics.append(parts[2].strip())
+            if len(sentiments) == len(df):
+                df["sentiment"] = sentiments
+                df["topic"] = topics
+                st.success("✅ AI classification updated.")
+            else:
+                st.warning("⚠️ Could not map all lines — showing raw output above.")
+        except Exception as e:
+            st.error(f"⚠️ OpenAI error: {e}")
 
 # ---------- 5. DASHBOARD AREA ----------
 col1, col2 = st.columns(2)
-
 with col1:
     st.subheader("📈 Sentiment distribution")
     st.bar_chart(df["sentiment"].value_counts())
-
 with col2:
     st.subheader("🏷️ Topic distribution")
     st.bar_chart(df["topic"].value_counts())
@@ -143,7 +117,7 @@ with col2:
 st.subheader("📋 Feedback table")
 st.dataframe(df[["date", "message", "sentiment", "topic"]], use_container_width=True)
 
-# filter
+# ---------- 6. FILTER ----------
 st.subheader("🔎 Filter by topic")
 topic_list = ["All"] + sorted(df["topic"].unique().tolist())
 selected_topic = st.selectbox("Select topic", topic_list)
@@ -152,8 +126,8 @@ if selected_topic != "All":
 else:
     st.write(df[["date", "message", "sentiment", "topic"]])
 
-# ---------- 6. AI SUMMARY / EXEC VIEW ----------
-st.subheader("🧠 AI Insights")
+# ---------- 7. AI EXECUTIVE SUMMARY ----------
+st.subheader("🧠 AI Insights Summary")
 if client is None:
     st.info("Set OPENAI_API_KEY in Streamlit secrets to enable AI summary.")
 else:
@@ -170,8 +144,11 @@ else:
         Feedback:
         {joined}
         """
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        st.write(resp.choices[0].message.content)
+        try:
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}]
+            )
+            st.write(resp.choices[0].message.content)
+        except Exception as e:
+            st.error(f"⚠️ OpenAI error: {e}")
