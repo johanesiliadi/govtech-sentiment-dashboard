@@ -42,13 +42,14 @@ with st.form("add_form", clear_on_submit=True):
 # ---------- 3. LOCAL (NO-AI) FALLBACK CLASSIFIERS ----------
 def local_sentiment(text: str) -> str:
     t = text.lower()
-    neg = ["cannot", "not working", "slow", "error", "complain", "bad", "fail", "issue", "problem", "frustrating"]
-    pos = ["thank", "thanks", "good", "great", "appreciate", "helpful", "well done", "improvement"]
+    neg = ["cannot", "not working", "slow", "error", "complain", "bad", "fail", "issue", "problem", "frustrating", "timeout", "crash"]
+    pos = ["thank", "thanks", "good", "great", "appreciate", "helpful", "well done", "improvement", "love"]
     if any(w in t for w in neg):
         return "Negative"
     if any(w in t for w in pos):
         return "Positive"
     return "Neutral"
+
 
 def local_topic(text: str) -> str:
     t = text.lower()
@@ -64,6 +65,7 @@ def local_topic(text: str) -> str:
         return "e-Payment"
     return "Others"
 
+
 # start with local so dashboard is never empty
 df["sentiment"] = df["message"].apply(local_sentiment)
 df["topic"] = df["message"].apply(local_topic)
@@ -72,40 +74,49 @@ df["topic"] = df["message"].apply(local_topic)
 st.subheader("🤖 AI Classification (sentiment + topic)")
 st.write("Click the button below to let AI re-classify all rows. If no OpenAI key is set, we keep local rules.")
 
+
 def classify_ai(text: str):
     # no key → fallback
     if client is None:
         return local_sentiment(text), local_topic(text)
 
-	prompt = f"""
-	You are analysing citizen feedback for Singapore government services.
-	Label the sentiment as Positive, Negative, or Neutral.
-	Rules:
-	- Complaints, issues, or service problems = Negative.
-	- Praise, gratitude, or satisfaction = Positive.
-	- Objective statements with no emotion = Neutral.
-	Output format:
-	sentiment: <value>
-	topic: <value>
-	
-	Feedback: {text}
-	"""
+    prompt = f"""
+    You are analysing citizen feedback for Singapore government services.
+    Classify the feedback into:
+    - Sentiment: Positive, Negative, or Neutral
+    - Topic: choose ONE from this list exactly:
+      [Housing, Transport, Digital/Singpass, Social/Financial, Health, Elderly/Inclusion, e-Payment, Others]
+
+    Rules:
+    - Any complaint, inconvenience, frustration, or failure = Negative
+    - Any praise, gratitude, satisfaction = Positive
+    - Objective or factual statements = Neutral
+
+    Respond strictly in this format:
+    sentiment: <value>
+    topic: <value>
+
+    Feedback: {text}
+    """
 
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}]
     )
+
     content = resp.choices[0].message.content
-    # default
     sent = local_sentiment(text)
     top = local_topic(text)
+
     for line in content.splitlines():
         line = line.strip()
         if line.lower().startswith("sentiment:"):
-            sent = line.split(":",1)[1].strip().title()
+            sent = line.split(":", 1)[1].strip().title()
         if line.lower().startswith("topic:"):
-            top = line.split(":",1)[1].strip()
+            top = line.split(":", 1)[1].strip()
+
     return sent, top
+
 
 if st.button("Run AI on all feedback"):
     ai_sents = []
@@ -130,16 +141,16 @@ with col2:
     st.bar_chart(df["topic"].value_counts())
 
 st.subheader("📋 Feedback table")
-st.dataframe(df[["date","message","sentiment","topic"]], use_container_width=True)
+st.dataframe(df[["date", "message", "sentiment", "topic"]], use_container_width=True)
 
 # filter
 st.subheader("🔎 Filter by topic")
 topic_list = ["All"] + sorted(df["topic"].unique().tolist())
 selected_topic = st.selectbox("Select topic", topic_list)
 if selected_topic != "All":
-    st.write(df[df["topic"] == selected_topic][["date","message","sentiment","topic"]])
+    st.write(df[df["topic"] == selected_topic][["date", "message", "sentiment", "topic"]])
 else:
-    st.write(df[["date","message","sentiment","topic"]])
+    st.write(df[["date", "message", "sentiment", "topic"]])
 
 # ---------- 6. AI SUMMARY / EXEC VIEW ----------
 st.subheader("🧠 AI Insights")
@@ -161,6 +172,6 @@ else:
         """
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role":"user","content":prompt}]
+            messages=[{"role": "user", "content": prompt}]
         )
         st.write(resp.choices[0].message.content)
