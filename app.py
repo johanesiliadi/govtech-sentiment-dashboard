@@ -3,13 +3,11 @@ import pandas as pd
 from datetime import datetime
 import os
 import plotly.express as px
-import requests
-from bs4 import BeautifulSoup
 
 # ---------- PAGE CONFIG ----------
 st.set_page_config(page_title="GovAI Sentiment Lens", page_icon="📊", layout="wide")
 st.title("📊 GovAI Sentiment Lens")
-st.caption("POC – AI-powered public feedback + live sentiment demo (Singapore context)")
+st.caption("POC – AI-powered public feedback analysis (Singapore context)")
 
 # ---------- OPENAI CLIENT ----------
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
@@ -100,63 +98,6 @@ with st.form("add_form", clear_on_submit=True):
         st.session_state.df = pd.concat([st.session_state.df, pd.DataFrame([new_row])], ignore_index=True)
         save_data(st.session_state.df)
         st.success("✅ Feedback added and saved!")
-
-df = st.session_state.df
-
-# ---------- SIMPLE GOOGLE SCRAPER (FALLBACK FOR DEMO) ----------
-def fetch_tweets_fallback(query: str, limit: int = 5):
-    """Fetch pseudo-tweets via Google search results (site:x.com Singapore)."""
-    results = []
-    search_query = f"site:x.com {query} singapore"
-    url = f"https://www.google.com/search?q={search_query}"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        resp = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(resp.text, "html.parser")
-        for h in soup.select("h3")[:limit]:
-            text = h.get_text().strip()
-            if text:
-                results.append({
-                    "date": datetime.now().strftime("%Y-%m-%d"),
-                    "message": text,
-                    "source": "Google (X.com)",
-                    "user_location": "Singapore"
-                })
-    except Exception as e:
-        st.error(f"Failed to fetch: {e}")
-    return results
-
-# ---------- UI FOR SCRAPER ----------
-st.markdown("---")
-st.subheader("🌐 Fetch public posts (Singapore context)")
-col_a, col_b = st.columns([3, 1])
-with col_a:
-    twitter_query = st.text_input("Search keyword", value="singpass OR HDB OR CPF")
-with col_b:
-    fetch_limit = st.number_input("How many?", min_value=1, max_value=20, value=5)
-
-if st.button("Fetch Posts (Demo)"):
-    with st.spinner("Fetching simulated tweets near Singapore..."):
-        tweets = fetch_tweets_fallback(twitter_query, int(fetch_limit))
-        if tweets:
-            st.success(f"Fetched {len(tweets)} posts")
-            for t in tweets:
-                st.write(f"- ({t['date']}) {t['message'][:200]} 📍 {t['user_location']}")
-            new_rows = []
-            start_id = int(df["id"].max()) + 1 if len(df) else 1
-            for i, r in enumerate(tweets):
-                new_rows.append({
-                    "id": start_id + i,
-                    "date": r["date"],
-                    "message": r["message"],
-                    "sentiment": local_sentiment(r["message"]),
-                    "topic": local_topic(r["message"])
-                })
-            st.session_state.df = pd.concat([st.session_state.df, pd.DataFrame(new_rows)], ignore_index=True)
-            save_data(st.session_state.df)
-            st.success("✅ Posts added to dataset!")
-        else:
-            st.warning("No results found – try another keyword like 'Singpass' or 'HDB'.")
 
 df = st.session_state.df
 
