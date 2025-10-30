@@ -20,11 +20,9 @@ else:
 # ---------- HELPERS ----------
 @st.cache_data
 def load_data():
-    """Load CSV once (cached)."""
     return pd.read_csv("feedback.csv")
 
 def save_data(df):
-    """Save dataframe to CSV."""
     df.drop_duplicates(subset="id", keep="last", inplace=True)
     df.to_csv("feedback.csv", index=False)
 
@@ -63,6 +61,23 @@ def local_topic(text: str) -> str:
         return "Education"
     return "Others"
 
+# ---------- ENSURE COLUMNS EXIST ----------
+# your CSV at first only has: id,date,message
+for col in ["sentiment", "topic"]:
+    if col not in df.columns:
+        df[col] = ""
+
+# fill missing sentiment/topic using local rules
+missing_sent = df["sentiment"].isna() | (df["sentiment"] == "")
+df.loc[missing_sent, "sentiment"] = df.loc[missing_sent, "message"].apply(local_sentiment)
+
+missing_topic = df["topic"].isna() | (df["topic"] == "")
+df.loc[missing_topic, "topic"] = df.loc[missing_topic, "message"].apply(local_topic)
+
+# push back to session + file so next rerun it’s already complete
+st.session_state.df = df
+save_data(st.session_state.df)
+
 # ---------- SIDEBAR CONFIG ----------
 st.sidebar.header("⚙️ Configuration")
 use_ai = st.sidebar.toggle("Enable AI mode", value=True)
@@ -83,7 +98,7 @@ with st.form("add_form", clear_on_submit=True):
     submitted = st.form_submit_button("Add to dashboard")
     if submitted and new_msg.strip():
         new_row = {
-            "id": len(st.session_state.df) + 1,
+            "id": int(df["id"].max()) + 1 if len(df) else 1,
             "date": datetime.now().strftime("%Y-%m-%d"),
             "message": new_msg.strip(),
             "sentiment": local_sentiment(new_msg.strip()),
@@ -110,24 +125,13 @@ if st.button("Run AI Batch Classification"):
         - Sentiment: One of [Positive, Negative, Neutral, Frustrated]
         - Topic: One of [Housing, Transport, Digital/Singpass, Social/Financial, Health, Education, Elderly/Inclusion, e-Payment, Others]
 
-        ### Rules:
-        1. **Frustrated** → Any strong irritation, repeated failures, anger, or emotional stress.
-           Examples: "keeps timing out", "every time I try", "always fails", "so annoying", "this is ridiculous".
-        2. **Negative** → Complaint or dissatisfaction stated factually.
-        3. **Positive** → Praise, gratitude, satisfaction.
-        4. **Neutral** → Objective statements or questions with no emotion.
+        Rules:
+        - "keeps timing out", "every time I try", "always fails", "so annoying", "this is ridiculous" → Frustrated
+        - service down / not working / error → Negative
+        - thanks / appreciate / good job → Positive
+        - info-seeking / factual → Neutral
 
-        ### Examples:
-        1. "Bus arrival time in the app is not accurate." → Negative, Transport  
-        2. "Singpass keeps timing out when I try to access services." → Frustrated, Digital/Singpass  
-        3. "Thanks for fixing the login issue." → Positive, Digital/Singpass  
-        4. "Can I check my CPF balance?" → Neutral, Social/Financial  
-        5. "I'm really angry the system keeps crashing after update." → Frustrated, Digital/Singpass  
-        6. "The HDB rental form is confusing." → Negative, Housing  
-        7. "The doctor appointment booking system is confusing." → Negative, Health  
-        8. "The new school portal is helpful for parents." → Positive, Education
-
-        Now classify the following feedback lines and respond ONLY in CSV format:
+        Respond ONLY in CSV format:
         id,sentiment,topic
         """
         for i, msg in enumerate(df["message"], start=1):
@@ -140,7 +144,7 @@ if st.button("Run AI Batch Classification"):
             )
             output = resp.choices[0].message.content.strip()
 
-            # ---- PARSE SAFE CSV ----
+            # parse CSV safely
             lines = [l.strip() for l in output.splitlines() if "," in l]
             parsed = []
             for line in lines:
@@ -160,9 +164,9 @@ if st.button("Run AI Batch Classification"):
                 df.drop(columns=["sentiment_ai", "topic_ai"], inplace=True)
                 st.session_state.df = df
                 save_data(st.session_state.df)
-                st.success(f"✅ Updated {len(parsed_df)} rows from AI output and saved to CSV.")
+                st.success(f"✅ Updated {len(parsed_df)} rows from AI output and saved.")
             else:
-                st.warning("⚠️ No valid lines detected — AI output ignored.")
+                st.warning("⚠️ AI did not return valid CSV lines.")
         except Exception as e:
             st.error(f"⚠️ OpenAI error: {e}")
 
