@@ -77,19 +77,20 @@ def classify_ai(text: str):
     if client is None:
         return local_sentiment(text), local_topic(text)
 
-    prompt = f"""
-    You are analysing public feedback for Singapore government digital services.
-    For the feedback below, give me:
-    - Sentiment: Positive, Negative, or Neutral
-    - Topic: choose ONE from this list exactly:
-      [Housing, Transport, Digital/Singpass, Social/Financial, Health, Elderly/Inclusion, e-Payment, Others]
+	prompt = f"""
+	You are analysing citizen feedback for Singapore government services.
+	Label the sentiment as Positive, Negative, or Neutral.
+	Rules:
+	- Complaints, issues, or service problems = Negative.
+	- Praise, gratitude, or satisfaction = Positive.
+	- Objective statements with no emotion = Neutral.
+	Output format:
+	sentiment: <value>
+	topic: <value>
+	
+	Feedback: {text}
+	"""
 
-    Reply in this exact format:
-    sentiment: <value>
-    topic: <value>
-
-    Feedback: {text}
-    """
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}]
