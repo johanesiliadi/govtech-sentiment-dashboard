@@ -123,7 +123,6 @@ if st.button("Run AI Batch Classification"):
 				messages=[{"role": "user", "content": prompt}]
 			)
 			output = resp.choices[0].message.content.strip()
-			st.text_area("AI Batch Output (CSV)", output, height=150)
 
 			# ----- SAFE PARSE & MERGE -----
 			lines = [l.strip() for l in output.splitlines() if "," in l]
