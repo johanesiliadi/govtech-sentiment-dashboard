@@ -36,6 +36,7 @@ with st.form("add_form", clear_on_submit=True):
 			"message": new_msg.strip()
 		}
 		df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+		df.to_csv("feedback.csv", index=False)
 		st.success("✅ Feedback added below.")
 
 # ---------- 3. LOCAL FALLBACK CLASSIFIERS ----------
