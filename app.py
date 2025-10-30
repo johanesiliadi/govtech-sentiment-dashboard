@@ -65,6 +65,20 @@ def local_topic(text: str) -> str:
 df["sentiment"] = df["message"].apply(local_sentiment)
 df["topic"] = df["message"].apply(local_topic)
 
+# ---------- MODE TOGGLE ----------
+st.sidebar.header("⚙️ Configuration")
+use_ai = st.sidebar.toggle("Enable AI mode", value=True)
+
+if not use_ai:
+    client = None
+    st.sidebar.warning("Running in LOCAL MODE (rule-based only)")
+else:
+    if client:
+        st.sidebar.success("Running in AI MODE (OpenAI active)")
+    else:
+        st.sidebar.error("No OpenAI key found – defaulting to LOCAL MODE")
+
+
 # ---------- 4. BATCH AI CLASSIFICATION ----------
 st.subheader("🤖 AI Batch Classification (sentiment + topic)")
 st.write("Classify all feedback at once using a single AI call. If no API key, fallback to local rules.")
