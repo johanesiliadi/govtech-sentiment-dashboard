@@ -2,13 +2,14 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import os
+import plotly.express as px
 
 # ---------- PAGE CONFIG ----------
 st.set_page_config(page_title="GovAI Sentiment Lens", page_icon="📊", layout="wide")
 st.title("📊 GovAI Sentiment Lens")
-st.caption("POC – AI-powered public feedback analysis (CSV + manual input + batch AI classification)")
+st.caption("POC – AI-powered public feedback analysis (with Frustrated sentiment category)")
 
-# ---------- OPENAI CLIENT (optional) ----------
+# ---------- OPENAI CLIENT ----------
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 if OPENAI_KEY:
     from openai import OpenAI
@@ -23,10 +24,10 @@ def load_data():
 
 df = load_data()
 
-# ---------- 2. MANUAL INPUT SECTION ----------
+# ---------- 2. ADD NEW FEEDBACK ----------
 st.subheader("➕ Add new citizen feedback")
 with st.form("add_form", clear_on_submit=True):
-    new_msg = st.text_area("Citizen feedback text", help="E.g. 'Cannot login to Singpass', 'Thanks for fast response', etc.")
+    new_msg = st.text_area("Citizen feedback text", help="E.g. 'Cannot login to Singpass', 'Bus timing not accurate', etc.")
     submitted = st.form_submit_button("Add to dashboard")
     if submitted and new_msg.strip():
         new_row = {
@@ -40,11 +41,11 @@ with st.form("add_form", clear_on_submit=True):
 # ---------- 3. LOCAL FALLBACK CLASSIFIERS ----------
 def local_sentiment(text: str) -> str:
     t = text.lower()
-    neg = ["cannot", "not working", "slow", "error", "complain", "bad", "fail", "issue", "problem", "frustrating", "timeout", "crash"]
-    pos = ["thank", "thanks", "good", "great", "appreciate", "helpful", "well done", "improvement", "love"]
-    if any(w in t for w in neg):
+    if any(w in t for w in ["angry", "frustrated", "upset", "annoyed", "again", "every time", "sick of", "tired of"]):
+        return "Frustrated"
+    if any(w in t for w in ["cannot", "not working", "slow", "error", "complain", "bad", "fail", "issue", "problem", "timeout", "crash", "inaccurate"]):
         return "Negative"
-    if any(w in t for w in pos):
+    if any(w in t for w in ["thank", "thanks", "good", "great", "appreciate", "helpful", "well done", "love"]):
         return "Positive"
     return "Neutral"
 
@@ -65,7 +66,7 @@ def local_topic(text: str) -> str:
 df["sentiment"] = df["message"].apply(local_sentiment)
 df["topic"] = df["message"].apply(local_topic)
 
-# ---------- MODE TOGGLE ----------
+# ---------- 4. AI MODE TOGGLE ----------
 st.sidebar.header("⚙️ Configuration")
 use_ai = st.sidebar.toggle("Enable AI mode", value=True)
 
@@ -78,21 +79,42 @@ else:
     else:
         st.sidebar.error("No OpenAI key found – defaulting to LOCAL MODE")
 
-
-# ---------- 4. BATCH AI CLASSIFICATION ----------
-st.subheader("🤖 AI Batch Classification (sentiment + topic)")
-st.write("Classify all feedback at once using a single AI call. If no API key, fallback to local rules.")
+# ---------- 5. BATCH AI CLASSIFICATION ----------
+st.subheader("🤖 AI Batch Classification (sentiment + topic + frustration detection)")
+st.write("Classify all feedback at once using a single AI call. Includes new 'Frustrated' sentiment category.")
 
 if st.button("Run AI Batch Classification"):
     if client is None:
         st.warning("⚠️ No OpenAI key found, using local classification only.")
     else:
-        # Build batch prompt
-        prompt = "Classify each feedback line below as Sentiment (Positive, Negative, Neutral) and Topic.\n"
-        prompt += "Topics: [Housing, Transport, Digital/Singpass, Social/Financial, Health, Elderly/Inclusion, e-Payment, Others, Frustated People]\n\n"
+        prompt = """
+        You are analyzing citizen feedback for Singapore government digital services.
+
+        For each feedback line below, classify into:
+        - Sentiment: One of [Positive, Negative, Neutral, Frustrated]
+        - Topic: One of [Housing, Transport, Digital/Singpass, Social/Financial, Health, Elderly/Inclusion, e-Payment, Others]
+
+        ### Rules:
+        1. **Frustrated** → Strong irritation, repeated failures, anger, emotional stress (e.g. 'This is ridiculous', 'I'm very frustrated', 'Every time it crashes').
+           It’s a subset of Negative but with emotional intensity or repetition.
+        2. **Negative** → Complaint or dissatisfaction, stated factually (e.g. 'Bus arrival time not accurate', 'Login not working').
+        3. **Positive** → Praise, gratitude, satisfaction.
+        4. **Neutral** → Objective statements or questions with no emotion.
+
+        ### Examples:
+        1. 'Bus arrival time in the app is not accurate.' → Negative, Transport  
+        2. 'Singpass keeps timing out every time I try!' → Frustrated, Digital/Singpass  
+        3. 'Thanks for fixing the login issue.' → Positive, Digital/Singpass  
+        4. 'Can I check my CPF balance?' → Neutral, Social/Financial  
+        5. 'I'm really angry the system keeps crashing after update.' → Frustrated, Digital/Singpass  
+        6. 'The HDB rental form is confusing.' → Negative, Housing
+
+        Now classify the following feedback lines and respond ONLY in CSV format:
+        id,sentiment,topic
+        """
+
         for i, msg in enumerate(df["message"], start=1):
             prompt += f"{i}. {msg}\n"
-        prompt += "\nRespond ONLY in CSV format: id,sentiment,topic"
 
         try:
             resp = client.chat.completions.create(
@@ -105,7 +127,7 @@ if st.button("Run AI Batch Classification"):
             # Parse AI output into dataframe
             lines = [l.strip() for l in output.splitlines() if "," in l]
             sentiments, topics = [], []
-            for idx, line in enumerate(lines):
+            for line in lines:
                 parts = line.split(",")
                 if len(parts) >= 3:
                     sentiments.append(parts[1].strip().title())
@@ -119,19 +141,31 @@ if st.button("Run AI Batch Classification"):
         except Exception as e:
             st.error(f"⚠️ OpenAI error: {e}")
 
-# ---------- 5. DASHBOARD AREA ----------
-col1, col2 = st.columns(2)
-with col1:
-    st.subheader("📈 Sentiment distribution")
-    st.bar_chart(df["sentiment"].value_counts())
-with col2:
-    st.subheader("🏷️ Topic distribution")
-    st.bar_chart(df["topic"].value_counts())
+# ---------- 6. DASHBOARD ----------
+st.subheader("📊 Sentiment Distribution")
+sent_count = df["sentiment"].value_counts().reset_index()
+fig = px.bar(
+    sent_count,
+    x="index",
+    y="sentiment",
+    title="Sentiment Distribution",
+    color="index",
+    color_discrete_map={
+        "Frustrated": "red",
+        "Negative": "orange",
+        "Positive": "green",
+        "Neutral": "gray"
+    },
+)
+st.plotly_chart(fig, use_container_width=True)
 
-st.subheader("📋 Feedback table")
+st.subheader("🏷️ Topic Distribution")
+st.bar_chart(df["topic"].value_counts())
+
+st.subheader("📋 Feedback Table")
 st.dataframe(df[["date", "message", "sentiment", "topic"]], use_container_width=True)
 
-# ---------- 6. FILTER ----------
+# ---------- 7. FILTER ----------
 st.subheader("🔎 Filter by topic")
 topic_list = ["All"] + sorted(df["topic"].unique().tolist())
 selected_topic = st.selectbox("Select topic", topic_list)
@@ -140,7 +174,7 @@ if selected_topic != "All":
 else:
     st.write(df[["date", "message", "sentiment", "topic"]])
 
-# ---------- 7. AI EXECUTIVE SUMMARY ----------
+# ---------- 8. EXECUTIVE SUMMARY ----------
 st.subheader("🧠 AI Insights Summary")
 if client is None:
     st.info("Set OPENAI_API_KEY in Streamlit secrets to enable AI summary.")
@@ -152,7 +186,8 @@ else:
         Based on the feedback below, list:
         1) Top 3 recurring citizen issues
         2) One positive highlight
-        3) Which agency or team is likely impacted
+        3) Any trends in frustration level or sentiment shifts
+        4) Which agency or team is likely impacted
         Keep it under 150 words.
 
         Feedback:
