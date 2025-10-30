@@ -81,7 +81,7 @@ else:
 
 # ---------- 5. BATCH AI CLASSIFICATION ----------
 st.subheader("🤖 AI Batch Classification (sentiment + topic + frustration detection)")
-st.write("Classify all feedback at once using a single AI call. Includes new 'Frustrated' sentiment category.")
+st.write("Classify all feedback at once using a single AI call.")
 
 if st.button("Run AI Batch Classification"):
 	if client is None:
