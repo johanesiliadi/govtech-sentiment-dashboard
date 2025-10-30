@@ -3,12 +3,13 @@ import pandas as pd
 from datetime import datetime
 import os
 import plotly.express as px
-import time
+import requests
+from bs4 import BeautifulSoup
 
 # ---------- PAGE CONFIG ----------
 st.set_page_config(page_title="GovAI Sentiment Lens", page_icon="📊", layout="wide")
 st.title("📊 GovAI Sentiment Lens")
-st.caption("POC – AI-powered public feedback analysis + Twitter demo (Singapore-based)")
+st.caption("POC – AI-powered public feedback + live sentiment demo (Singapore context)")
 
 # ---------- OPENAI CLIENT ----------
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
@@ -17,12 +18,6 @@ if OPENAI_KEY:
     client = OpenAI(api_key=OPENAI_KEY)
 else:
     client = None
-
-# ---------- OPTIONAL IMPORTS ----------
-try:
-    import snscrape.modules.twitter as sntwitter
-except Exception:
-    sntwitter = None
 
 # ---------- HELPERS ----------
 @st.cache_data
@@ -108,53 +103,60 @@ with st.form("add_form", clear_on_submit=True):
 
 df = st.session_state.df
 
-# ---------- TWITTER SCRAPER ----------
-def fetch_tweets_snscrape(query: str, limit: int = 5):
-    """Fetch tweets using snscrape with near:singapore geotag."""
-    if sntwitter is None:
-        st.error("snscrape not installed.")
-        return []
-    full_query = f"{query} near:singapore since:2025-10-01"
+# ---------- SIMPLE GOOGLE SCRAPER (FALLBACK FOR DEMO) ----------
+def fetch_tweets_fallback(query: str, limit: int = 5):
+    """Fetch pseudo-tweets via Google search results (site:x.com Singapore)."""
     results = []
-    for i, tweet in enumerate(sntwitter.TwitterSearchScraper(full_query).get_items()):
-        if i >= limit:
-            break
-        results.append({
-            "date": tweet.date.date().isoformat() if tweet.date else "",
-            "message": tweet.content,
-            "source": "Twitter/X",
-            "user_location": tweet.user.location if tweet.user and tweet.user.location else ""
-        })
+    search_query = f"site:x.com {query} singapore"
+    url = f"https://www.google.com/search?q={search_query}"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for h in soup.select("h3")[:limit]:
+            text = h.get_text().strip()
+            if text:
+                results.append({
+                    "date": datetime.now().strftime("%Y-%m-%d"),
+                    "message": text,
+                    "source": "Google (X.com)",
+                    "user_location": "Singapore"
+                })
+    except Exception as e:
+        st.error(f"Failed to fetch: {e}")
     return results
 
+# ---------- UI FOR SCRAPER ----------
 st.markdown("---")
-st.subheader("🌐 Fetch public tweets near Singapore")
+st.subheader("🌐 Fetch public posts (Singapore context)")
 col_a, col_b = st.columns([3, 1])
 with col_a:
-    twitter_query = st.text_input("Twitter/X search keyword", value="singpass")
+    twitter_query = st.text_input("Search keyword", value="singpass OR HDB OR CPF")
 with col_b:
     fetch_limit = st.number_input("How many?", min_value=1, max_value=20, value=5)
 
-if st.button("Fetch Tweets (Singapore)"):
-    with st.spinner("Fetching tweets near Singapore..."):
-        tweets = fetch_tweets_snscrape(twitter_query, int(fetch_limit))
-        st.success(f"Fetched {len(tweets)} tweets near Singapore")
-        for t in tweets:
-            st.write(f"- ({t['date']}) {t['message'][:180]} 📍 {t['user_location']}")
+if st.button("Fetch Posts (Demo)"):
+    with st.spinner("Fetching simulated tweets near Singapore..."):
+        tweets = fetch_tweets_fallback(twitter_query, int(fetch_limit))
         if tweets:
+            st.success(f"Fetched {len(tweets)} posts")
+            for t in tweets:
+                st.write(f"- ({t['date']}) {t['message'][:200]} 📍 {t['user_location']}")
             new_rows = []
             start_id = int(df["id"].max()) + 1 if len(df) else 1
             for i, r in enumerate(tweets):
                 new_rows.append({
                     "id": start_id + i,
-                    "date": r["date"] or datetime.now().strftime("%Y-%m-%d"),
+                    "date": r["date"],
                     "message": r["message"],
                     "sentiment": local_sentiment(r["message"]),
                     "topic": local_topic(r["message"])
                 })
             st.session_state.df = pd.concat([st.session_state.df, pd.DataFrame(new_rows)], ignore_index=True)
             save_data(st.session_state.df)
-            st.success("✅ Tweets added to dataset!")
+            st.success("✅ Posts added to dataset!")
+        else:
+            st.warning("No results found – try another keyword like 'Singpass' or 'HDB'.")
 
 df = st.session_state.df
 
@@ -182,7 +184,7 @@ st.bar_chart(df["topic"].value_counts())
 
 st.subheader("📋 Feedback Table")
 df_display = df.copy()
-df_display.index = range(1, len(df_display) + 1)  # ✅ start index from 1
+df_display.index = range(1, len(df_display) + 1)
 st.dataframe(df_display[["date", "message", "sentiment", "topic"]], use_container_width=True)
 
 # ---------- FILTER ----------
