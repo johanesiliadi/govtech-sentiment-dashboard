@@ -3,11 +3,12 @@ import pandas as pd
 from datetime import datetime
 import os
 import plotly.express as px
+import time
 
 # ---------- PAGE CONFIG ----------
 st.set_page_config(page_title="GovAI Sentiment Lens", page_icon="📊", layout="wide")
 st.title("📊 GovAI Sentiment Lens")
-st.caption("POC – AI-powered public feedback analysis (persistent + frustration detection)")
+st.caption("POC – AI-powered public feedback analysis + Twitter demo (Singapore-based)")
 
 # ---------- OPENAI CLIENT ----------
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
@@ -16,6 +17,12 @@ if OPENAI_KEY:
     client = OpenAI(api_key=OPENAI_KEY)
 else:
     client = None
+
+# ---------- OPTIONAL IMPORTS ----------
+try:
+    import snscrape.modules.twitter as sntwitter
+except Exception:
+    sntwitter = None
 
 # ---------- HELPERS ----------
 @st.cache_data
@@ -29,7 +36,6 @@ def save_data(df):
 # ---------- SESSION STATE ----------
 if "df" not in st.session_state:
     st.session_state.df = load_data()
-
 df = st.session_state.df
 
 # ---------- LOCAL CLASSIFIERS ----------
@@ -62,26 +68,18 @@ def local_topic(text: str) -> str:
     return "Others"
 
 # ---------- ENSURE COLUMNS EXIST ----------
-# your CSV at first only has: id,date,message
 for col in ["sentiment", "topic"]:
     if col not in df.columns:
         df[col] = ""
-
-# fill missing sentiment/topic using local rules
 missing_sent = df["sentiment"].isna() | (df["sentiment"] == "")
 df.loc[missing_sent, "sentiment"] = df.loc[missing_sent, "message"].apply(local_sentiment)
-
 missing_topic = df["topic"].isna() | (df["topic"] == "")
 df.loc[missing_topic, "topic"] = df.loc[missing_topic, "message"].apply(local_topic)
+save_data(df)
 
-# push back to session + file so next rerun it’s already complete
-st.session_state.df = df
-save_data(st.session_state.df)
-
-# ---------- SIDEBAR CONFIG ----------
+# ---------- SIDEBAR ----------
 st.sidebar.header("⚙️ Configuration")
 use_ai = st.sidebar.toggle("Enable AI mode", value=True)
-
 if not use_ai:
     client = None
     st.sidebar.warning("Running in LOCAL MODE (rule-based only)")
@@ -94,7 +92,7 @@ else:
 # ---------- ADD NEW FEEDBACK ----------
 st.subheader("➕ Add new citizen feedback")
 with st.form("add_form", clear_on_submit=True):
-    new_msg = st.text_area("Citizen feedback text", help="E.g. 'Cannot login to Singpass', 'Bus timing not accurate', etc.")
+    new_msg = st.text_area("Citizen feedback text")
     submitted = st.form_submit_button("Add to dashboard")
     if submitted and new_msg.strip():
         new_row = {
@@ -110,71 +108,60 @@ with st.form("add_form", clear_on_submit=True):
 
 df = st.session_state.df
 
-# ---------- AI BATCH CLASSIFICATION ----------
-st.subheader("🤖 AI Batch Classification (sentiment + topic + frustration detection)")
-st.write("Classify all feedback using AI and save results back to CSV.")
+# ---------- TWITTER SCRAPER ----------
+def fetch_tweets_snscrape(query: str, limit: int = 5):
+    """Fetch tweets using snscrape with near:singapore geotag."""
+    if sntwitter is None:
+        st.error("snscrape not installed.")
+        return []
+    full_query = f"{query} near:singapore since:2025-10-01"
+    results = []
+    for i, tweet in enumerate(sntwitter.TwitterSearchScraper(full_query).get_items()):
+        if i >= limit:
+            break
+        results.append({
+            "date": tweet.date.date().isoformat() if tweet.date else "",
+            "message": tweet.content,
+            "source": "Twitter/X",
+            "user_location": tweet.user.location if tweet.user and tweet.user.location else ""
+        })
+    return results
 
-if st.button("Run AI Batch Classification"):
-    if client is None:
-        st.warning("⚠️ No OpenAI key found, using local classification only.")
-    else:
-        prompt = """
-        You are analyzing citizen feedback for Singapore government digital services.
+st.markdown("---")
+st.subheader("🌐 Fetch public tweets near Singapore")
+col_a, col_b = st.columns([3, 1])
+with col_a:
+    twitter_query = st.text_input("Twitter/X search keyword", value="singpass")
+with col_b:
+    fetch_limit = st.number_input("How many?", min_value=1, max_value=20, value=5)
 
-        For each feedback line below, classify into:
-        - Sentiment: One of [Positive, Negative, Neutral, Frustrated]
-        - Topic: One of [Housing, Transport, Digital/Singpass, Social/Financial, Health, Education, Elderly/Inclusion, e-Payment, Others]
+if st.button("Fetch Tweets (Singapore)"):
+    with st.spinner("Fetching tweets near Singapore..."):
+        tweets = fetch_tweets_snscrape(twitter_query, int(fetch_limit))
+        st.success(f"Fetched {len(tweets)} tweets near Singapore")
+        for t in tweets:
+            st.write(f"- ({t['date']}) {t['message'][:180]} 📍 {t['user_location']}")
+        if tweets:
+            new_rows = []
+            start_id = int(df["id"].max()) + 1 if len(df) else 1
+            for i, r in enumerate(tweets):
+                new_rows.append({
+                    "id": start_id + i,
+                    "date": r["date"] or datetime.now().strftime("%Y-%m-%d"),
+                    "message": r["message"],
+                    "sentiment": local_sentiment(r["message"]),
+                    "topic": local_topic(r["message"])
+                })
+            st.session_state.df = pd.concat([st.session_state.df, pd.DataFrame(new_rows)], ignore_index=True)
+            save_data(st.session_state.df)
+            st.success("✅ Tweets added to dataset!")
 
-        Rules:
-        - "keeps timing out", "every time I try", "always fails", "so annoying", "this is ridiculous" → Frustrated
-        - service down / not working / error → Negative
-        - thanks / appreciate / good job → Positive
-        - info-seeking / factual → Neutral
-
-        Respond ONLY in CSV format:
-        id,sentiment,topic
-        """
-        for i, msg in enumerate(df["message"], start=1):
-            prompt += f"{i}. {msg}\n"
-
-        try:
-            resp = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}]
-            )
-            output = resp.choices[0].message.content.strip()
-
-            # parse CSV safely
-            lines = [l.strip() for l in output.splitlines() if "," in l]
-            parsed = []
-            for line in lines:
-                parts = [p.strip() for p in line.split(",")]
-                if len(parts) >= 3 and parts[0].isdigit():
-                    parsed.append({
-                        "id": int(parts[0]),
-                        "sentiment": parts[1].title(),
-                        "topic": parts[2]
-                    })
-
-            if parsed:
-                parsed_df = pd.DataFrame(parsed)
-                df = pd.merge(df, parsed_df, on="id", how="left", suffixes=("", "_ai"))
-                df["sentiment"] = df["sentiment_ai"].combine_first(df["sentiment"])
-                df["topic"] = df["topic_ai"].combine_first(df["topic"])
-                df.drop(columns=["sentiment_ai", "topic_ai"], inplace=True)
-                st.session_state.df = df
-                save_data(st.session_state.df)
-                st.success(f"✅ Updated {len(parsed_df)} rows from AI output and saved.")
-            else:
-                st.warning("⚠️ AI did not return valid CSV lines.")
-        except Exception as e:
-            st.error(f"⚠️ OpenAI error: {e}")
+df = st.session_state.df
 
 # ---------- DASHBOARD ----------
 st.subheader("📊 Sentiment Distribution")
 sent_count = df["sentiment"].value_counts().reset_index()
 sent_count.columns = ["sentiment", "count"]
-
 fig = px.bar(
     sent_count,
     x="sentiment",
@@ -194,16 +181,20 @@ st.subheader("🏷️ Topic Distribution")
 st.bar_chart(df["topic"].value_counts())
 
 st.subheader("📋 Feedback Table")
-st.dataframe(df[["date", "message", "sentiment", "topic"]], use_container_width=True)
+df_display = df.copy()
+df_display.index = range(1, len(df_display) + 1)  # ✅ start index from 1
+st.dataframe(df_display[["date", "message", "sentiment", "topic"]], use_container_width=True)
 
 # ---------- FILTER ----------
 st.subheader("🔎 Filter by topic")
 topic_list = ["All"] + sorted(df["topic"].unique().tolist())
 selected_topic = st.selectbox("Select topic", topic_list)
 if selected_topic != "All":
-    st.write(df[df["topic"] == selected_topic][["date", "message", "sentiment", "topic"]])
+    df_filtered = df[df["topic"] == selected_topic].copy()
 else:
-    st.write(df[["date", "message", "sentiment", "topic"]])
+    df_filtered = df.copy()
+df_filtered.index = range(1, len(df_filtered) + 1)
+st.dataframe(df_filtered[["date", "message", "sentiment", "topic"]])
 
 # ---------- EXECUTIVE SUMMARY ----------
 st.subheader("🧠 AI Insights Summary")
