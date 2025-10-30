@@ -142,14 +142,15 @@ if st.button("Run AI Batch Classification"):
             st.error(f"⚠️ OpenAI error: {e}")
 
 # ---------- 6. DASHBOARD ----------
-st.subheader("📊 Sentiment Distribution")
 sent_count = df["sentiment"].value_counts().reset_index()
+sent_count.columns = ["sentiment", "count"]  # ✅ Rename columns
+
 fig = px.bar(
     sent_count,
-    x="index",
-    y="sentiment",
+    x="sentiment",
+    y="count",
     title="Sentiment Distribution",
-    color="index",
+    color="sentiment",
     color_discrete_map={
         "Frustrated": "red",
         "Negative": "orange",
