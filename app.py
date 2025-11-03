@@ -240,10 +240,13 @@ with right:
                            data=df.to_csv(index=False).encode("utf-8"),
                            file_name="employee_feedback.csv", mime="text/csv")
 
-    # ---- Upload CSV & Demo Data ----
-    st.markdown("### 📤 Upload Responses or Generate Demo Data")
+        # ---- Upload CSV & Generate Demo Data ----
+    st.markdown("### 📤 Upload Employee Feedback CSV")
 
-    uploaded = st.file_uploader("Upload a CSV with employee responses (id,date,employee,department,message)", type=["csv"])
+    uploaded = st.file_uploader(
+        "Upload a CSV with columns: id,date,employee,department,message",
+        type=["csv"]
+    )
 
     if uploaded:
         try:
@@ -251,49 +254,83 @@ with right:
             new_df["message"] = new_df["message"].fillna("").astype(str)
 
             if client and not new_df.empty:
-                # 🧠 Batch classification: only ONE API call per upload
-                all_text = "\n".join([f"{i+1}. {m}" for i, m in enumerate(new_df["message"].tolist())])
+                # 🧠 Batch classify all messages in one API call
+                messages_block = "\n".join(
+                    [f"{i+1}. {m}" for i, m in enumerate(new_df["message"].tolist())]
+                )
+
                 prompt = f"""
                 Classify the following employee feedback messages into sentiment and topic.
-                Return only CSV lines with: row_id,sentiment,topic
+
+                Return ONLY a valid CSV with columns:
+                row_id,sentiment,topic
+
                 Sentiment ∈ [Positive, Negative, Neutral, Frustrated]
                 Topic ∈ [Workload, Management Support, Work Environment, Communication, Growth, Others]
 
                 Messages:
-                {all_text}
+                {messages_block}
                 """
 
-                with st.spinner("Analyzing uploaded feedback in one batch..."):
+                with st.spinner("Classifying all feedback in one batch..."):
                     resp = client.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=[{"role": "user", "content": prompt}]
                     )
+                    ai_output = resp.choices[0].message.content.strip()
 
-                import io, re
-                # --- Clean and extract valid CSV-looking lines ---
-                result_text = resp.choices[0].message.content.strip()
-                csv_lines = [l for l in result_text.splitlines() if re.match(r"^\d+,\s*\w+", l)]
-                if not csv_lines:
-                    raise ValueError("No valid CSV lines detected in AI response.")
-                result_df = pd.read_csv(io.StringIO("\n".join(csv_lines)))
-                new_df["sentiment"] = result_df["sentiment"].apply(normalize_sentiment)
+                import io, re, csv
+                # --- Extract proper CSV-like lines only ---
+                csv_lines = [
+                    l for l in ai_output.splitlines()
+                    if re.match(r"^\d+\s*,", l.strip())
+                ]
+
+                # Add header if missing
+                if not any("sentiment" in l.lower() for l in csv_lines[:2]):
+                    csv_lines.insert(0, "row_id,sentiment,topic")
+
+                cleaned_csv = "\n".join(csv_lines)
+
+                # --- Parse robustly ---
+                try:
+                    result_df = pd.read_csv(io.StringIO(cleaned_csv))
+                except Exception:
+                    reader = csv.reader(io.StringIO(cleaned_csv))
+                    rows = list(reader)
+                    header = rows[0]
+                    data = rows[1:]
+                    result_df = pd.DataFrame(data, columns=header)
+
+                # --- Ensure required columns ---
+                if "sentiment" not in result_df.columns:
+                    result_df["sentiment"] = "Neutral"
+                if "topic" not in result_df.columns:
+                    result_df["topic"] = "Others"
+
+                # Normalize & merge
+                result_df["sentiment"] = result_df["sentiment"].apply(normalize_sentiment)
+                new_df["sentiment"] = result_df["sentiment"]
                 new_df["topic"] = result_df["topic"]
 
             else:
-                # No API key or empty upload → fallback
-                new_df["sentiment"], new_df["topic"] = zip(*new_df["message"].apply(classify_text_with_ai_or_local))
+                # 🧩 No OpenAI key → fallback to local rule-based classification
+                new_df["sentiment"], new_df["topic"] = zip(
+                    *new_df["message"].apply(classify_text_with_ai_or_local)
+                )
 
-            # Merge and save
+            # ✅ Save & refresh dashboard
             st.session_state.df = pd.concat([st.session_state.df, new_df], ignore_index=True)
             save_data(st.session_state.df)
-            st.success(f"✅ Uploaded and classified {len(new_df)} responses successfully.")
+            st.success(f"✅ Uploaded & classified {len(new_df)} feedback entries successfully.")
             st.rerun()
 
         except Exception as e:
             st.error(f"⚠️ Upload failed: {e}")
 
     # ---- Generate Demo CSV ----
-    if st.button("🧪 Generate AI Demo CSV"):
+    st.markdown("---")
+    if st.button("🧪 Generate Demo CSV"):
         if client:
             try:
                 prompt = f"""
@@ -303,16 +340,17 @@ with right:
                 {"; ".join(st.session_state.questions)}
 
                 Each row represents one employee.
-                Return results ONLY as a CSV with columns:
+
+                Return ONLY a clean CSV with columns:
                 id,date,employee,department,message
                 - date should be today
                 - employee names can be random
                 - department ∈ [FSC, SSO, Crisis Shelter, Transitional Shelter, Care Staff, Welfare Officer]
-                - message should combine all answers from that employee, separated by " | "
-                Do not include sentiment or topic columns, and do not explain anything.
+                - message should combine all answers separated by " | "
+                Do not include any explanation or extra text.
                 """
 
-                with st.spinner("Generating realistic demo responses..."):
+                with st.spinner("Generating demo responses..."):
                     resp = client.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=[{"role": "user", "content": prompt}]
@@ -320,25 +358,23 @@ with right:
                 raw_output = resp.choices[0].message.content.strip()
 
                 import io, csv, re
-                # 🔧 Clean output – remove any commentary or Markdown
+                # --- Clean possible markdown or commentary ---
                 lines = [l for l in raw_output.splitlines() if re.search(r"\d", l) and "," in l]
-                # Ensure header line
                 if not any("id" in l.lower() for l in lines[:2]):
                     lines.insert(0, "id,date,employee,department,message")
                 cleaned_csv = "\n".join(lines)
 
-                # Try to parse robustly
+                # --- Parse robustly ---
                 try:
                     demo_df = pd.read_csv(io.StringIO(cleaned_csv))
                 except Exception:
-                    # fallback: use csv.reader to handle weird quoting
                     reader = csv.reader(io.StringIO(cleaned_csv))
                     rows = list(reader)
                     header = rows[0]
                     data = rows[1:]
                     demo_df = pd.DataFrame(data, columns=header)
 
-                # ✅ Guarantee correct columns
+                # ✅ Guarantee correct structure
                 required_cols = ["id", "date", "employee", "department", "message"]
                 for col in required_cols:
                     if col not in demo_df.columns:
@@ -346,7 +382,7 @@ with right:
                 demo_df = demo_df[required_cols]
 
                 st.download_button(
-                    "⬇️ Download AI-Generated Demo CSV",
+                    "⬇️ Download Demo CSV",
                     data=demo_df.to_csv(index=False).encode("utf-8"),
                     file_name="demo_feedback.csv",
                     mime="text/csv"
@@ -354,9 +390,9 @@ with right:
                 st.success("✅ Demo CSV generated successfully!")
 
             except Exception as e:
-                st.error(f"⚠️ AI Demo generation failed: {e}")
+                st.error(f"⚠️ Demo CSV generation failed: {e}")
         else:
-            st.warning("No OpenAI API key detected. Please set it to enable AI demo generation.")
+            st.warning("No OpenAI API key detected. Please set it to enable demo CSV generation.")
 
 # ---------- Dashboard ----------
 st.markdown("---")
