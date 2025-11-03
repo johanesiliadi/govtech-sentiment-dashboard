@@ -269,13 +269,20 @@ if not df.empty:
     st.subheader("🏷️ Topic Distribution")
     st.bar_chart(df["topic"].value_counts(), use_container_width=True)
 
-# Clear data
-st.subheader("🧹 Data Controls")
-if st.button("Clear all feedback data"):
-    st.session_state.df = pd.DataFrame(columns=["id","date","employee","department","message","sentiment","topic"])
-    save_data(st.session_state.df)
-    st.success("✅ All feedback cleared. Charts reset.")
-    st.rerun()
+# ---------- RECENT FEEDBACK ----------
+st.markdown("---")
+st.subheader("🗒️ Last 10 Employee Feedback Entries")
+
+if not df.empty:
+    last10 = df.sort_values(by="date", ascending=False).tail(10)
+    st.dataframe(
+        last10[["date", "employee", "department", "message", "sentiment", "topic"]],
+        use_container_width=True,
+        hide_index=True
+    )
+else:
+    st.info("No feedback available yet. Add some responses to see them here.")
+
 
 # ---------- EXECUTIVE SUMMARY ----------
 st.markdown("---")
