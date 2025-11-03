@@ -240,100 +240,97 @@ with right:
                            data=df.to_csv(index=False).encode("utf-8"),
                            file_name="employee_feedback.csv", mime="text/csv")
 
-    # ---- Manual CSV Upload ----
-    uploaded = st.file_uploader("📤 Upload CSV (id,date,employee,department,message)", type=["csv"])
+    # ---- Upload CSV & Demo Data ----
+    st.markdown("### 📤 Upload Responses or Generate Demo Data")
+
+    uploaded = st.file_uploader("Upload a CSV with employee responses (id,date,employee,department,message)", type=["csv"])
+
     if uploaded:
         try:
             new_df = pd.read_csv(uploaded)
             new_df["message"] = new_df["message"].fillna("").astype(str)
 
-            # --- If OpenAI key available, classify all messages in ONE batch call ---
             if client and not new_df.empty:
-                messages_text = "\n".join(
-                    [f"{i+1}. {m}" for i, m in enumerate(new_df["message"].tolist())]
-                )
+                # 🧠 Batch classification: only ONE API call per upload
+                all_text = "\n".join([f"{i+1}. {m}" for i, m in enumerate(new_df["message"].tolist())])
                 prompt = f"""
-                You are classifying employee feedback messages in bulk.
-                Return a CSV with these columns: row_id,sentiment,topic
+                Classify the following employee feedback messages into sentiment and topic.
+                Return only CSV lines with: row_id,sentiment,topic
                 Sentiment ∈ [Positive, Negative, Neutral, Frustrated]
                 Topic ∈ [Workload, Management Support, Work Environment, Communication, Growth, Others]
 
                 Messages:
-                {messages_text}
+                {all_text}
                 """
 
-                with st.spinner("Analyzing all uploaded feedback in a single batch..."):
+                with st.spinner("Analyzing uploaded feedback in one batch..."):
                     resp = client.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=[{"role": "user", "content": prompt}]
                     )
-                    import io
-                    result_text = resp.choices[0].message.content.strip()
 
-                # --- Parse the AI result back into a DataFrame ---
-                try:
-                    result_df = pd.read_csv(io.StringIO(result_text))
-                    # Merge back on row_id
-                    new_df["sentiment"] = result_df["sentiment"]
-                    new_df["topic"] = result_df["topic"]
-                except Exception as parse_error:
-                    st.warning(f"⚠️ Could not parse AI output cleanly, using local classification. ({parse_error})")
-                    new_df["sentiment"], new_df["topic"] = zip(*new_df["message"].apply(classify_text_with_ai_or_local))
+                import io, re
+                # --- Clean and extract valid CSV-looking lines ---
+                result_text = resp.choices[0].message.content.strip()
+                csv_lines = [l for l in result_text.splitlines() if re.match(r"^\d+,\s*\w+", l)]
+                if not csv_lines:
+                    raise ValueError("No valid CSV lines detected in AI response.")
+                result_df = pd.read_csv(io.StringIO("\n".join(csv_lines)))
+                new_df["sentiment"] = result_df["sentiment"].apply(normalize_sentiment)
+                new_df["topic"] = result_df["topic"]
+
             else:
-                # --- No OpenAI key: fallback to local classification ---
+                # No API key or empty upload → fallback
                 new_df["sentiment"], new_df["topic"] = zip(*new_df["message"].apply(classify_text_with_ai_or_local))
 
-            # --- Save combined data ---
+            # Merge and save
             st.session_state.df = pd.concat([st.session_state.df, new_df], ignore_index=True)
             save_data(st.session_state.df)
-            st.success(f"✅ Uploaded & classified {len(new_df)} entries (batch processed).")
+            st.success(f"✅ Uploaded and classified {len(new_df)} responses successfully.")
             st.rerun()
 
         except Exception as e:
-            st.error(f"⚠️ Upload error: {e}")
+            st.error(f"⚠️ Upload failed: {e}")
 
-
-    # ---- AI-driven Demo CSV Generator (answers all 5 questions) ----
+    # ---- Generate Demo CSV ----
     if st.button("🧪 Generate AI Demo CSV"):
-        if client is None:
-            st.warning("⚠️ OpenAI key not found – cannot auto-generate demo CSV.")
-        else:
+        if client:
             try:
-                questions_text = "\n".join([f"{i+1}. {q}" for i, q in enumerate(st.session_state.questions)])
                 prompt = f"""
-                You are preparing demo HR feedback data for an internal dashboard.
+                You are simulating 10 employee feedback submissions for a morale survey.
+                For each simulated employee, answer these {len(st.session_state.questions)} questions:
 
-                Each employee is answering this questionnaire:
-                {questions_text}
+                {"; ".join(st.session_state.questions)}
 
-                Generate 10 realistic employee responses in CSV format:
-                employee_name,department,message
-
-                - The "message" column should combine answers for all 5 questions, separated by " | "
-                - Tone: mix of positive, negative, frustrated, and neutral
-                - Names: Singaporean-style (Siti, Wei Ming, Priya, Alex, John, Maria)
-                - Departments: FSC, SSO, Crisis Shelter, Transitional Shelter, Care Staff, Welfare Officer, Others
-                - Keep responses concise, natural, and varied
-                - Return ONLY CSV lines (no markdown or explanation)
+                Include variety across departments: FSC, SSO, Crisis Shelter, Transitional Shelter, Care Staff, Welfare Officer.
+                Return as a CSV with columns:
+                id,date,employee,department,message
+                - 'message' should combine all answers from that employee separated by ' | '
+                - Do NOT include sentiment or topic columns.
                 """
-                with st.spinner("Generating demo responses..."):
+
+                with st.spinner("Generating realistic demo responses..."):
                     resp = client.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=[{"role": "user", "content": prompt}]
                     )
-                    content = resp.choices[0].message.content.strip()
-                demo_df = pd.read_csv(StringIO(content), names=["employee", "department", "message"])
-                demo_df.insert(0, "id", range(1, len(demo_df)+1))
-                demo_df.insert(1, "date", datetime.now().strftime("%Y-%m-%d"))
+
+                csv_data = resp.choices[0].message.content.strip()
+
+                # Save cleaned demo file
+                import io
+                demo_df = pd.read_csv(io.StringIO(csv_data))
                 st.download_button(
-                    "⬇️ Download AI-Generated Demo Feedback CSV (5Q per entry)",
+                    "⬇️ Download AI-Generated Demo CSV",
                     data=demo_df.to_csv(index=False).encode("utf-8"),
-                    file_name="demo_feedback_ai.csv",
+                    file_name="demo_feedback.csv",
                     mime="text/csv"
                 )
-                st.success("✅ AI-generated demo feedback ready to download!")
+                st.success("✅ Demo CSV generated successfully!")
             except Exception as e:
-                st.error(f"⚠️ Could not generate AI demo CSV: {e}")
+                st.error(f"⚠️ AI Demo generation failed: {e}")
+        else:
+            st.warning("No OpenAI API key detected. Please set it to enable AI demo generation.")
 
 # ---------- Dashboard ----------
 st.markdown("---")
