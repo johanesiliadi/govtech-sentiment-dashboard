@@ -202,6 +202,7 @@ with left:
                 }
                 st.session_state.df = pd.concat([st.session_state.df, pd.DataFrame([new_row])], ignore_index=True)
                 save_data(st.session_state.df)
+                update_sentiment_trend_per_run(st.session_state.df)  # live morale update
                 st.success(f"✅ Saved — Sentiment: {sentiment}, Topic: {topic}")
                 st.rerun()
 
@@ -235,6 +236,18 @@ if not df_live.empty:
                                barmode="group", color_discrete_map=SENTIMENT_COLORS,
                                title="Sentiment by Division"), use_container_width=True)
 
+    if os.path.exists(TREND_FILE):
+        trend_df = pd.read_csv(TREND_FILE)
+        if not trend_df.empty and "avg_score" in trend_df.columns:
+            st.subheader("📈 Morale Trend")
+            fig = px.line(trend_df, x="timestamp", y="avg_score", markers=True,
+                          title="Average Morale Index (Higher = Better)")
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("ℹ️ No morale trend data yet. Add feedback or generate a summary to start tracking morale.")
+else:
+    st.info("No feedback yet. Submit responses to see sentiment analysis.")
+
 # ---------- RECENT FEEDBACK ----------
 st.markdown("---")
 st.subheader("🗒️ Last 10 Feedback Entries")
@@ -253,15 +266,19 @@ if client and st.button("Generate executive summary"):
     if os.path.exists(TREND_FILE):
         tdf = pd.read_csv(TREND_FILE).tail(5)
         trend_snippet = tdf.to_dict(orient="records")
+    dept_list = ", ".join(df["department"].dropna().unique())
     prompt = f"""
-    Summarize HR insights:
-    1) Top 3 morale issues
-    2) One positive highlight
-    3) Mood shift trends (based on morale index)
-    4) Divisions needing attention
-    Trend snapshots: {trend_snippet}
-    Keep under 250 words.
-    Feedback:
+    You are analyzing employee feedback data from multiple departments.
+
+    Each feedback record has: department, message, sentiment, and topic.
+
+    Summarize clearly and concisely (under 250 words):
+    1️⃣ Top 3 morale issues based on negative or frustrated sentiments.
+    2️⃣ One positive highlight showing good engagement.
+    3️⃣ Mood shift trends using these morale snapshots: {trend_snippet}.
+    4️⃣ Divisions needing attention — mention ONLY from these departments: {dept_list}.
+
+    Feedback data:
     {joined}
     """
     with st.spinner("Generating executive summary..."):
