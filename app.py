@@ -100,7 +100,7 @@ if client:
                 if new_qs:
                     st.session_state.questions = new_qs
                     st.success("✅ Form updated with new questions!")
-                    st.experimental_rerun()
+                    st.rerun()
                 else:
                     st.warning("⚠️ Could not parse new questions.")
             except Exception as e:
@@ -114,7 +114,7 @@ if client:
                 "Any suggestions to improve your work environment?"
             ]
             st.info("Form reset to default questions.")
-            st.experimental_rerun()
+            st.rerun()
 else:
     st.info("Set OPENAI_API_KEY to enable adaptive question generation.")
 
