@@ -238,36 +238,55 @@ st.subheader("🧠 AI Insights Summary")
 
 if client and st.button("Generate executive summaries (2 formats)"):
     joined = "\n".join(df["message"].tolist()) if not df.empty else "(no feedback)"
+
     trend_snippet = []
     if os.path.exists(TREND_FILE):
         tdf = pd.read_csv(TREND_FILE).tail(5)
         trend_snippet = tdf.to_dict(orient="records")
 
     prompt_narrative = f"""
-    You are an HR communications expert. Write a short narrative (max 200 words) summarizing:
-    1) Overall morale and tone
-    2) Main challenges and frustrations
-    3) Positive highlights
-    4) Suggested next actions
-    Avoid numeric counts — use descriptive tone.
+    You are an HR communications expert summarizing employee morale based on feedback and recent trend data.
+
+    The following morale trend data represents past sentiment summaries (newest last):
+    {trend_snippet}
+
+    Write a short HR-style narrative summary (under 200 words) that:
+    - Describes how employee morale is shifting (based on the trend snippet above)
+    - Highlights main pain points or frustrations
+    - Notes positive or improving aspects
+    - Suggests clear, people-oriented next actions for HR or management
+    Avoid numeric counts and keep the tone empathetic, concise, and professional.
+
     Feedback:
     {joined}
     """
 
     prompt_bullet = f"""
-    Write an HR summary in concise bullet points:
-    - Top morale issues
-    - Positive highlights
-    - Areas requiring support
-    - Action recommendations
-    Avoid numeric data.
+    You are an HR analyst summarizing employee feedback and recent sentiment trends.
+
+    The following morale trend data represents past sentiment summaries (newest last):
+    {trend_snippet}
+
+    Produce 5–7 bullet points that:
+    - Integrate the morale trend naturally (e.g. morale improving, morale declining, or stable)
+    - Cover top morale issues and frustrations
+    - Highlight positive aspects and improvements
+    - Suggest actionable next steps
+    - Avoid numeric counts; use natural HR phrasing.
+
     Feedback:
     {joined}
     """
 
     with st.spinner("Generating summaries..."):
-        resp1 = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt_narrative}])
-        resp2 = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt_bullet}])
+        resp1 = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt_narrative}]
+        )
+        resp2 = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt_bullet}]
+        )
         summary_narrative = resp1.choices[0].message.content.strip()
         summary_bullet = resp2.choices[0].message.content.strip()
         st.session_state["summary_narrative"] = summary_narrative
@@ -282,3 +301,4 @@ if "summary_narrative" in st.session_state or "summary_bullet" in st.session_sta
         st.write(st.session_state.get("summary_narrative", "No summary yet."))
     with tabs[1]:
         st.write(st.session_state.get("summary_bullet", "No summary yet."))
+
