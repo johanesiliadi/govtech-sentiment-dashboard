@@ -332,7 +332,7 @@ if client and st.button("Generate executive summary"):
     2) One positive highlight
     3) Mood shift trends
     4) Departments needing attention
-    Keep under 150 words.
+    Keep under 250 words.
     Feedback:
     {joined}
     """
