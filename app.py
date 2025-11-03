@@ -85,7 +85,6 @@ st.subheader("🧩 Generate Next Questionnaire")
 
 if client:
     if st.button("Generate next questionnaire"):
-        # Show recent comments
         if not df.empty:
             st.markdown("### 🗣️ Recent Employee Comments (last 5)")
             for msg in df["message"].tail(5):
@@ -117,7 +116,6 @@ if client:
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}]
             )
-
             q_text = resp.choices[0].message.content
             st.markdown("### 🆕 New Suggested Questions:")
             st.write(q_text)
@@ -166,21 +164,51 @@ with left_col:
         if submitted:
             msg = " | ".join([a for a in answers if a.strip()])
             if msg:
+                with st.spinner("🔍 Analyzing feedback with AI..."):
+                    if client:
+                        try:
+                            prompt = f"""
+                            You are analyzing an employee feedback message.
+                            Classify it into:
+                            - Sentiment: [Positive, Negative, Neutral, Frustrated]
+                            - Topic: [Workload, Management Support, Work Environment, Communication, Growth, Others]
+                            Rules:
+                            - Frustrated = emotional or repeated complaints (“again”, “always”, “sick of”, “so bad”)
+                            - Negative = factual dissatisfaction without anger (“slow”, “error”, “not working”)
+                            - Positive = praise, thanks, appreciation
+                            - Neutral = factual or unclear emotion
+                            Respond ONLY in CSV format:
+                            sentiment,topic
+                            Message: {msg.strip()}
+                            """
+                            resp = client.chat.completions.create(
+                                model="gpt-4o-mini",
+                                messages=[{"role": "user", "content": prompt}]
+                            )
+                            output = resp.choices[0].message.content.strip()
+                            parts = [p.strip() for p in output.split(",")]
+                            sentiment = parts[0].title() if len(parts) > 0 else local_sentiment(msg)
+                            topic = parts[1] if len(parts) > 1 else local_topic(msg)
+                        except Exception:
+                            sentiment = local_sentiment(msg)
+                            topic = local_topic(msg)
+                    else:
+                        sentiment = local_sentiment(msg)
+                        topic = local_topic(msg)
+
                 new_row = {
                     "id": int(df["id"].max()) + 1 if len(df) else 1,
                     "date": datetime.now().strftime("%Y-%m-%d"),
                     "employee": name,
                     "department": dept,
                     "message": msg.strip(),
-                    "sentiment": local_sentiment(msg.strip()),
-                    "topic": local_topic(msg.strip())
+                    "sentiment": sentiment,
+                    "topic": topic
                 }
-                st.session_state.df = pd.concat(
-                    [st.session_state.df, pd.DataFrame([new_row])],
-                    ignore_index=True
-                )
+                st.session_state.df = pd.concat([st.session_state.df, pd.DataFrame([new_row])], ignore_index=True)
                 save_data(st.session_state.df)
-                st.success("✅ Feedback saved and analyzed!")
+                st.success(f"✅ Feedback saved — Sentiment: **{sentiment}**, Topic: **{topic}**")
+                st.rerun()
             else:
                 st.warning("Please answer at least one question.")
 
@@ -191,7 +219,6 @@ with right_col:
     if not os.path.exists("questions_history.csv"):
         pd.DataFrame(columns=["timestamp", "questions"]).to_csv("questions_history.csv", index=False)
 
-    # Save new questionnaire set
     if "questions" in st.session_state and st.session_state.questions:
         latest_qs = " | ".join(st.session_state.questions)
         history_df = pd.read_csv("questions_history.csv")
@@ -224,79 +251,6 @@ with right_col:
                            data=csv_data,
                            file_name="employee_feedback.csv",
                            mime="text/csv")
-
-    with st.expander("📂 Upload Responses (CSV)"):
-        uploaded_file = st.file_uploader("Upload employee feedback CSV", type=["csv"])
-        if uploaded_file is not None:
-            try:
-                uploaded_df = pd.read_csv(uploaded_file)
-                required_cols = {"employee", "department", "message"}
-                if required_cols.issubset(uploaded_df.columns):
-                    uploaded_df["id"] = range(int(df["id"].max()) + 1 if len(df) else 1,
-                                              int(df["id"].max()) + 1 + len(uploaded_df))
-                    uploaded_df["date"] = datetime.now().strftime("%Y-%m-%d")
-                    uploaded_df["sentiment"] = uploaded_df["message"].apply(local_sentiment)
-                    uploaded_df["topic"] = uploaded_df["message"].apply(local_topic)
-                    st.session_state.df = pd.concat([st.session_state.df, uploaded_df], ignore_index=True)
-                    save_data(st.session_state.df)
-                    st.success(f"✅ Imported {len(uploaded_df)} feedback entries successfully!")
-                    st.rerun()
-                else:
-                    st.error("❌ CSV must contain 'employee', 'department', and 'message' columns.")
-            except Exception as e:
-                st.error(f"⚠️ Error reading file: {e}")
-
-
-# ---------- AI BATCH CLASSIFICATION ----------
-st.markdown("---")
-st.subheader("🤖 Re-Run AI Sentiment & Topic Classification")
-
-if st.button("Run AI Batch Classification"):
-    if client is None:
-        st.warning("⚠️ No OpenAI key found, running local classification instead.")
-    else:
-        prompt = """
-        You are analyzing employee feedback for an organization.
-        For each feedback line, classify into:
-        - Sentiment: [Positive, Negative, Neutral, Frustrated]
-        - Topic: [Workload, Management Support, Work Environment, Communication, Growth, Others]
-        Rules:
-        - Frustrated = emotional or repeated complaints (“again”, “always”, “sick of”, “so bad”)
-        - Negative = factual dissatisfaction without anger (“slow”, “error”, “not working”)
-        - Positive = praise, thanks, appreciation
-        - Neutral = factual or unclear emotion
-        Respond ONLY in CSV format: id,sentiment,topic
-        """
-        for i, msg in enumerate(df["message"], start=1):
-            prompt += f"{i}. {msg}\n"
-
-        try:
-            resp = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}]
-            )
-            output = resp.choices[0].message.content.strip()
-
-            lines = [l for l in output.splitlines() if "," in l]
-            parsed = []
-            for line in lines:
-                parts = [p.strip() for p in line.split(",")]
-                if len(parts) >= 3 and parts[0].isdigit():
-                    parsed.append({"id": int(parts[0]), "sentiment": parts[1].title(), "topic": parts[2]})
-
-            if parsed:
-                parsed_df = pd.DataFrame(parsed)
-                df = pd.merge(df, parsed_df, on="id", how="left", suffixes=("", "_ai"))
-                df["sentiment"] = df["sentiment_ai"].combine_first(df["sentiment"])
-                df["topic"] = df["topic_ai"].combine_first(df["topic"])
-                df.drop(columns=["sentiment_ai", "topic_ai"], inplace=True)
-                st.session_state.df = df
-                save_data(df)
-                st.success(f"✅ Updated {len(parsed_df)} rows from AI output and saved.")
-            else:
-                st.warning("⚠️ AI returned no valid lines.")
-        except Exception as e:
-            st.error(f"⚠️ OpenAI error: {e}")
 
 
 # ---------- DASHBOARD ----------
@@ -353,7 +307,7 @@ if client and st.button("Generate executive summary"):
     2) One positive highlight
     3) Mood shift trends
     4) Departments needing attention
-    Keep under 250 words.
+    Keep under 150 words.
     Feedback:
     {joined}
     """
