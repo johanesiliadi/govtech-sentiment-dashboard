@@ -40,12 +40,29 @@ df = st.session_state.df
 # ---------- LOCAL CLASSIFIERS ----------
 def local_sentiment(text: str) -> str:
     t = text.lower()
-    if any(w in t for w in ["angry", "frustrated", "upset", "annoyed", "stressed", "tired", "burnout"]):
+
+    # Frustrated (emotionally charged)
+    if any(w in t for w in [
+        "angry", "frustrated", "upset", "annoyed", "sick of", "fed up", "ridiculous",
+        "every time", "always", "again and again", "tired of", "waste of time", "so bad"
+    ]):
         return "Frustrated"
-    if any(w in t for w in ["cannot", "not working", "slow", "error", "bad", "fail", "issue", "problem", "negative", "hard", "unfair"]):
+
+    # Negative (factual dissatisfaction but calm)
+    if any(w in t for w in [
+        "cannot", "can't", "not working", "slow", "error", "bad", "fail", "problem",
+        "doesn't work", "unavailable", "broken", "issue", "bug"
+    ]):
         return "Negative"
-    if any(w in t for w in ["thank", "thanks", "good", "great", "appreciate", "helpful", "well done", "love", "happy", "enjoy"]):
+
+    # Positive
+    if any(w in t for w in [
+        "thank", "thanks", "good", "great", "appreciate", "helpful", "well done",
+        "love", "happy", "enjoy", "awesome", "fantastic"
+    ]):
         return "Positive"
+
+    # Neutral
     return "Neutral"
 
 def local_topic(text: str) -> str:
@@ -68,7 +85,7 @@ st.subheader("🧩 Generate Next Questionnaire")
 
 if client:
     if st.button("Generate next questionnaire"):
-        # Show last few comments for context
+        # Show recent comments
         if not df.empty:
             st.markdown("### 🗣️ Recent Employee Comments (last 5)")
             for msg in df["message"].tail(5):
@@ -174,7 +191,7 @@ with right_col:
     if not os.path.exists("questions_history.csv"):
         pd.DataFrame(columns=["timestamp", "questions"]).to_csv("questions_history.csv", index=False)
 
-    # Save current question set to history
+    # Save new questionnaire set
     if "questions" in st.session_state and st.session_state.questions:
         latest_qs = " | ".join(st.session_state.questions)
         history_df = pd.read_csv("questions_history.csv")
@@ -186,7 +203,6 @@ with right_col:
             history_df = pd.concat([history_df, new_entry], ignore_index=True)
             history_df.to_csv("questions_history.csv", index=False)
 
-    # Show recent questionnaire sets
     try:
         hist = pd.read_csv("questions_history.csv")
         if not hist.empty:
@@ -230,6 +246,7 @@ with right_col:
             except Exception as e:
                 st.error(f"⚠️ Error reading file: {e}")
 
+
 # ---------- AI BATCH CLASSIFICATION ----------
 st.markdown("---")
 st.subheader("🤖 Re-Run AI Sentiment & Topic Classification")
@@ -243,6 +260,11 @@ if st.button("Run AI Batch Classification"):
         For each feedback line, classify into:
         - Sentiment: [Positive, Negative, Neutral, Frustrated]
         - Topic: [Workload, Management Support, Work Environment, Communication, Growth, Others]
+        Rules:
+        - Frustrated = emotional or repeated complaints (“again”, “always”, “sick of”, “so bad”)
+        - Negative = factual dissatisfaction without anger (“slow”, “error”, “not working”)
+        - Positive = praise, thanks, appreciation
+        - Neutral = factual or unclear emotion
         Respond ONLY in CSV format: id,sentiment,topic
         """
         for i, msg in enumerate(df["message"], start=1):
@@ -255,7 +277,6 @@ if st.button("Run AI Batch Classification"):
             )
             output = resp.choices[0].message.content.strip()
 
-            # Parse CSV-like response
             lines = [l for l in output.splitlines() if "," in l]
             parsed = []
             for line in lines:
