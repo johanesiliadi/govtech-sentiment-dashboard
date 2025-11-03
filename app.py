@@ -296,7 +296,9 @@ with right_col:
 st.markdown("---")
 st.subheader("📊 Sentiment Dashboard")
 
-df_chart = df[df["sentiment"].isin(ALLOWED_SENTIMENTS)].copy()
+df_chart = st.session_state.df.copy()
+df_chart = df_chart[df_chart["sentiment"].isin(ALLOWED_SENTIMENTS)]
+
 if not df_chart.empty:
     sentiment_color_map = {"Positive": "#21bf73", "Negative": "#ff9f43", "Frustrated": "#ee5253", "Neutral": "#8395a7"}
 
@@ -311,12 +313,23 @@ if not df_chart.empty:
                   color_discrete_map=sentiment_color_map, title="Sentiment by Division")
     st.plotly_chart(fig2, use_container_width=True)
 
+# ---------- LAST 10 FEEDBACK ----------
+st.markdown("---")
+st.subheader("🗒️ Last 10 Employee Feedback Entries")
+
+if not st.session_state.df.empty:
+    last10 = st.session_state.df.sort_values(by="date", ascending=False).tail(10)
+    st.dataframe(last10[["date", "employee", "department", "message", "sentiment", "topic"]],
+                 use_container_width=True, hide_index=True)
+else:
+    st.info("No feedback available yet.")
+
 # ---------- EXECUTIVE SUMMARY ----------
 st.markdown("---")
 st.subheader("🧠 AI Insights Summary")
 
 if client and st.button("Generate executive summary"):
-    joined = "\n".join(df["message"].tolist())
+    joined = "\n".join(st.session_state.df["message"].tolist())
     prompt = f"""
     Summarize HR insights:
     1) Top 3 recurring morale issues
