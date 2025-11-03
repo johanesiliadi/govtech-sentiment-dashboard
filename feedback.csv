@@ -1,6 +1,5 @@
 id,date,employee,department,message,sentiment,topic
-1,2025-10-28,Alice Tan,Engineering,"Workload has been really heavy lately | My manager tries to help but we still get too many urgent tasks | Maybe we can plan sprints better",Frustrated,Workload
-2,2025-10-28,Ben Lim,Finance,"I feel comfortable with my current workload | The team has been very supportive | I appreciate the hybrid work flexibility",Positive,Work Environment
-3,2025-10-28,Cheryl Ong,HR,"Sometimes communication between HR and other departments could be clearer | I feel we can improve coordination on policy updates | Meetings are frequent but productive",Neutral,Communication
-4,2025-10-28,David Lee,Sales,"Targets are quite challenging this quarter | Management is supportive but deadlines are tight | Would love more training sessions on new tools",Negative,Growth
-5,2025-10-28,Evelyn Goh,Operations,"Office environment feels much better after the renovation | Workload manageable | Team morale is high this month",Positive,Work Environment
+1,2025-11-01,John Tan,FSC,"System keeps freezing when updating client info",Negative,Workload
+2,2025-11-01,Maria Lim,SSO,"Appreciate the flexible schedule recently",Positive,Work Environment
+3,2025-11-02,David Lee,Welfare Officer,"Sometimes it's hard to get management approval for urgent requests",Frustrated,Management Support
+4,2025-11-03,Siti Rahman,Crisis Shelter,"The new workflow form is confusing and slow",Negative,Communication
