@@ -5,7 +5,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-# Optional OpenAI import
+# ---------- OPTIONAL OPENAI IMPORT ----------
 try:
     from openai import OpenAI
 except Exception:
@@ -36,22 +36,13 @@ SUMMARY_FILE = "last_summary.txt"
 TREND_FILE = "sentiment_trend.csv"
 
 # ---------- HELPERS ----------
-def ensure_initial_data():
-    if os.path.exists(DATA_FILE):
-        return pd.read_csv(DATA_FILE)
-    data = [
-        [1, "2025-11-01", "John Tan", "FSC", "System keeps freezing when updating client info", "Negative", "Workload"],
-        [2, "2025-11-01", "Maria Lim", "SSO", "Appreciate the flexible schedule recently", "Positive", "Work Environment"],
-        [3, "2025-11-02", "David Lee", "Welfare Officer", "Sometimes it's hard to get management approval for urgent requests", "Frustrated", "Management Support"],
-        [4, "2025-11-03", "Siti Rahman", "Crisis Shelter", "The new workflow form is confusing and slow", "Negative", "Communication"],
-    ]
-    df = pd.DataFrame(data, columns=["id", "date", "employee", "department", "message", "sentiment", "topic"])
-    df.to_csv(DATA_FILE, index=False)
-    return df
-
 @st.cache_data
 def load_data_cached():
-    return ensure_initial_data()
+    """Load existing feedback CSV or create empty DataFrame if missing."""
+    if os.path.exists(DATA_FILE):
+        return pd.read_csv(DATA_FILE)
+    else:
+        return pd.DataFrame(columns=["id", "date", "employee", "department", "message", "sentiment", "topic"])
 
 def save_data(df):
     if "id" in df.columns:
@@ -163,13 +154,12 @@ if "ai_summary" not in st.session_state:
     st.session_state.ai_summary = open(SUMMARY_FILE).read().strip() if os.path.exists(SUMMARY_FILE) else None
 df = st.session_state.df
 
-# ---------- BALANCED QUESTION GENERATOR (Option A) ----------
+# ---------- BALANCED QUESTION GENERATOR ----------
 st.subheader("🧩 Generate Next Questionnaire")
 if client and st.button("Generate next questionnaire"):
     sentiment_summary = df["sentiment"].value_counts().to_dict() if not df.empty else {}
     top_topics = df["topic"].value_counts().nlargest(3).index.tolist() if not df.empty else []
     sample_texts = "\n".join(df["message"].tail(10).tolist()) if not df.empty else "No feedback yet."
-
     prompt = f"""
     You are an HR assistant creating balanced employee engagement questionnaires.
     Here are recent feedback comments:
@@ -286,19 +276,31 @@ if not df_live.empty:
                                barmode="group", color_discrete_map=SENTIMENT_COLORS,
                                title="Sentiment by Division"), use_container_width=True)
 
+    # --- Safe Trend Chart Section ---
     if os.path.exists(TREND_FILE):
-        trend_df = pd.read_csv(TREND_FILE)
-        if not trend_df.empty:
-            st.subheader("📈 Sentiment Trend & Morale Index")
-            melt = trend_df.melt(id_vars="timestamp", value_vars=ALLOWED_SENTIMENTS,
-                                 var_name="Sentiment", value_name="Count")
-            st.plotly_chart(px.line(melt, x="timestamp", y="Count", color="Sentiment",
-                                    markers=True, color_discrete_map=SENTIMENT_COLORS,
-                                    title="Sentiment Trend (Per Summary Run)"),
-                            use_container_width=True)
-            st.plotly_chart(px.line(trend_df, x="timestamp", y="avg_score", markers=True,
-                                    title="Average Morale Index (Higher = Better)"),
-                            use_container_width=True)
+        try:
+            trend_df = pd.read_csv(TREND_FILE)
+            if not trend_df.empty and "avg_score" in trend_df.columns:
+                st.subheader("📈 Sentiment Trend & Morale Index")
+                melt = trend_df.melt(
+                    id_vars="timestamp",
+                    value_vars=[s for s in ALLOWED_SENTIMENTS if s in trend_df.columns],
+                    var_name="Sentiment", value_name="Count"
+                )
+                if not melt.empty:
+                    fig3 = px.line(melt, x="timestamp", y="Count", color="Sentiment",
+                                   markers=True, color_discrete_map=SENTIMENT_COLORS,
+                                   title="Sentiment Trend (Per Summary Run)")
+                    st.plotly_chart(fig3, use_container_width=True)
+                morale_df = trend_df[["timestamp", "avg_score"]].dropna()
+                if not morale_df.empty:
+                    fig4 = px.line(morale_df, x="timestamp", y="avg_score", markers=True,
+                                   title="Average Morale Index (Higher = Better)")
+                    st.plotly_chart(fig4, use_container_width=True)
+            else:
+                st.info("ℹ️ Morale trend data will appear after generating the first executive summary.")
+        except Exception as e:
+            st.warning(f"⚠️ Could not load trend data: {e}")
 
 # ---------- RECENT FEEDBACK ----------
 st.markdown("---")
