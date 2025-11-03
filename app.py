@@ -40,12 +40,26 @@ def load_data_cached():
     if os.path.exists(DATA_FILE):
         return pd.read_csv(DATA_FILE)
     else:
-        return pd.DataFrame(columns=["id", "date", "employee", "department", "message", "sentiment", "topic"])
+        return pd.DataFrame(columns=["id", "date", "timestamp", "employee", "department", "message", "sentiment", "topic"])
 
 def save_data(df):
     if "id" in df.columns:
         df.drop_duplicates(subset="id", keep="last", inplace=True)
     df.to_csv(DATA_FILE, index=False)
+
+def local_sentiment(text):
+    """Detect nuanced frustration like 'too many meetings'."""
+    t = (text or "").lower()
+    if any(w in t for w in [
+        "too many meeting", "sooo many meeting", "reduce meeting", "always meeting", "back-to-back meeting",
+        "angry", "frustrated", "upset", "annoyed", "sick of", "ridiculous", "tired of"
+    ]):
+        return "Frustrated"
+    if any(w in t for w in ["cannot", "not working", "slow", "error", "bad", "problem", "fail", "broken"]):
+        return "Negative"
+    if any(w in t for w in ["thank", "thanks", "good", "great", "appreciate", "helpful", "love", "happy", "awesome"]):
+        return "Positive"
+    return "Neutral"
 
 def normalize_sentiment(val):
     if val is None or (isinstance(val, float) and pd.isna(val)):
@@ -71,28 +85,40 @@ def classify_text_batch_with_ai(df):
     prompt = f"""
     You are classifying multiple employee feedback messages.
 
-    For each line below, output one line in CSV format:
+    For each feedback below, output one line in CSV format:
     sentiment,topic
-    where:
+
+    Rules:
     - Sentiment ∈ [Positive, Negative, Neutral, Frustrated]
     - Topic ∈ [Workload, Management Support, Work Environment, Communication, Growth, Others]
+    - If a message mentions 'too many meetings', 'reduce meeting', or similar polite complaints, classify it as Frustrated.
 
     Feedback messages:
     {msgs}
     """
-    resp = client.chat.completions.create(model="gpt-4o-mini",
-                                          messages=[{"role": "user", "content": prompt}])
-    text = resp.choices[0].message.content.strip()
-    rows = [r.strip() for r in text.split("\n") if r.strip()]
-    sentiments, topics = [], []
-    for line in rows:
-        parts = [p.strip() for p in line.split(",")]
-        sentiments.append(normalize_sentiment(parts[0]) if parts else "Neutral")
-        topics.append(parts[1] if len(parts) > 1 else "Others")
-    while len(sentiments) < len(df):
-        sentiments.append("Neutral")
-        topics.append("Others")
-    return sentiments[:len(df)], topics[:len(df)]
+    try:
+        resp = client.chat.completions.create(model="gpt-4o-mini",
+                                              messages=[{"role": "user", "content": prompt}])
+        text = resp.choices[0].message.content.strip()
+        rows = [r.strip() for r in text.split("\n") if r.strip()]
+        sentiments, topics = [], []
+        for line in rows:
+            parts = [p.strip() for p in line.split(",")]
+            sentiments.append(normalize_sentiment(parts[0]) if parts else "Neutral")
+            topics.append(parts[1] if len(parts) > 1 else "Others")
+        while len(sentiments) < len(df):
+            sentiments.append("Neutral")
+            topics.append("Others")
+
+        sentiments = [
+            local_sentiment(m) if local_sentiment(m) != "Neutral" else s
+            for m, s in zip(df["message"], sentiments)
+        ]
+        return sentiments[:len(df)], topics[:len(df)]
+    except Exception:
+        sentiments = [local_sentiment(m) for m in df["message"]]
+        topics = ["Others"] * len(sentiments)
+        return sentiments, topics
 
 def update_sentiment_trend_per_run(df):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -159,7 +185,7 @@ if client and st.button("Generate next questionnaire"):
     Sentiment mix: {sentiment_summary}.
     Top themes: {', '.join(top_topics)}.
 
-    Generate 5 open-ended questions (under 20 words total):
+    Generate 5 open-ended questions (under 20 words):
     - 2 exploring positive experiences
     - 2 addressing challenges or frustrations
     - 1 neutral morale-reflection question
@@ -197,12 +223,12 @@ with left:
                 new_row = {
                     "id": int(df["id"].max()) + 1 if len(df) else 1,
                     "date": datetime.now().strftime("%Y-%m-%d"),
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "employee": name, "department": dept,
                     "message": msg, "sentiment": sentiment, "topic": topic,
                 }
                 st.session_state.df = pd.concat([st.session_state.df, pd.DataFrame([new_row])], ignore_index=True)
                 save_data(st.session_state.df)
-                update_sentiment_trend_per_run(st.session_state.df)  # live morale update
                 st.success(f"✅ Saved — Sentiment: {sentiment}, Topic: {topic}")
                 st.rerun()
 
@@ -213,6 +239,10 @@ with right:
         hist = pd.read_csv(QUESTIONS_FILE)
         if not hist.empty:
             st.dataframe(hist.tail(5).iloc[::-1], use_container_width=True, hide_index=True)
+
+    st.download_button("⬇️ Download Current Questions",
+                       data="\n".join(st.session_state.questions),
+                       file_name="current_questions.csv", mime="text/csv")
 
 # ---------- DASHBOARD ----------
 st.markdown("---")
@@ -236,25 +266,32 @@ if not df_live.empty:
                                barmode="group", color_discrete_map=SENTIMENT_COLORS,
                                title="Sentiment by Division"), use_container_width=True)
 
-    if os.path.exists(TREND_FILE):
-        trend_df = pd.read_csv(TREND_FILE)
-        if not trend_df.empty and "avg_score" in trend_df.columns:
-            st.subheader("📈 Morale Trend")
-            fig = px.line(trend_df, x="timestamp", y="avg_score", markers=True,
-                          title="Average Morale Index (Higher = Better)")
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("ℹ️ No morale trend data yet. Add feedback or generate a summary to start tracking morale.")
-else:
-    st.info("No feedback yet. Submit responses to see sentiment analysis.")
+# ---------- MORALE TREND CHART ----------
+if os.path.exists(TREND_FILE):
+    tdf = pd.read_csv(TREND_FILE)
+    if not tdf.empty:
+        st.subheader("📈 Morale Trend Over Time")
+        st.plotly_chart(
+            px.line(
+                tdf,
+                x="timestamp",
+                y="avg_score",
+                markers=True,
+                title="Average Morale Index (Higher = Better)",
+            ),
+            use_container_width=True
+        )
 
 # ---------- RECENT FEEDBACK ----------
 st.markdown("---")
 st.subheader("🗒️ Last 10 Feedback Entries")
 if not df.empty:
-    st.dataframe(df.sort_values("date", ascending=False).tail(10)[
-        ["date", "employee", "department", "message", "sentiment", "topic"]
-    ], use_container_width=True, hide_index=True)
+    st.dataframe(
+        df.sort_values("timestamp", ascending=False).head(10)[
+            ["date", "timestamp", "employee", "department", "message", "sentiment", "topic"]
+        ],
+        use_container_width=True, hide_index=True
+    )
 
 # ---------- EXECUTIVE SUMMARY ----------
 st.markdown("---")
@@ -267,23 +304,31 @@ if client and st.button("Generate executive summary"):
         tdf = pd.read_csv(TREND_FILE).tail(5)
         trend_snippet = tdf.to_dict(orient="records")
     dept_list = ", ".join(df["department"].dropna().unique())
+
     prompt = f"""
-    You are analyzing employee feedback data from multiple departments.
+    You are an HR data analyst summarizing employee feedback across divisions.
 
-    Each feedback record has: department, message, sentiment, and topic.
+    Write a clear, reader-friendly summary (no numbers or scores).
+    Focus on qualitative patterns — e.g., “morale is improving”, “frustrations are growing”.
 
-    Summarize clearly and concisely (under 250 words):
-    1️⃣ Top 3 morale issues based on negative or frustrated sentiments.
-    2️⃣ One positive highlight showing good engagement.
-    3️⃣ Mood shift trends using these morale snapshots: {trend_snippet}.
-    4️⃣ Divisions needing attention — mention ONLY from these departments: {dept_list}.
+    Include these four parts:
+    1️⃣ Key morale issues and frustrations.
+    2️⃣ Positive highlights or improvements.
+    3️⃣ Mood shifts over time (no numeric data).
+    4️⃣ Which divisions or teams seem to need more attention.
+
+    Trend notes (for your reference): {trend_snippet}
+    Divisions: {dept_list}
 
     Feedback data:
     {joined}
     """
+
     with st.spinner("Generating executive summary..."):
-        resp = client.chat.completions.create(model="gpt-4o-mini",
-                                              messages=[{"role": "user", "content": prompt}])
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}]
+        )
         summary = resp.choices[0].message.content.strip()
         st.session_state.ai_summary = summary
         with open(SUMMARY_FILE, "w") as f:
