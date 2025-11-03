@@ -299,6 +299,11 @@ else:
 # ---------- EXECUTIVE SUMMARY ----------
 st.markdown("---")
 st.subheader("🧠 AI Insights Summary")
+
+# Keep last generated summary in session
+if "ai_summary" not in st.session_state:
+    st.session_state.ai_summary = None
+
 if client and st.button("Generate executive summary"):
     joined = "\n".join(df["message"].tolist())
     prompt = f"""
@@ -307,13 +312,26 @@ if client and st.button("Generate executive summary"):
     2) One positive highlight
     3) Mood shift trends
     4) Departments needing attention
-    Keep under 150 words.
+    Keep under 250 words.
     Feedback:
     {joined}
     """
     try:
-        resp = client.chat.completions.create(model="gpt-4o-mini",
-                                              messages=[{"role": "user", "content": prompt}])
-        st.write(resp.choices[0].message.content)
+        with st.spinner("Generating executive summary..."):
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}]
+            )
+            summary = resp.choices[0].message.content.strip()
+            st.session_state.ai_summary = summary
+            st.success("✅ New executive summary generated!")
     except Exception as e:
         st.error(f"⚠️ OpenAI error: {e}")
+
+# Always show the last summary (if any)
+if st.session_state.ai_summary:
+    st.markdown("### 🧾 Latest Executive Summary:")
+    st.write(st.session_state.ai_summary)
+else:
+    st.info("No executive summary generated yet.")
+
