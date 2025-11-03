@@ -8,7 +8,8 @@ from openai import OpenAI
 # ---------- PAGE CONFIG ----------
 st.set_page_config(page_title="Employee Sentiment Tracker", page_icon="💬", layout="wide")
 st.title("💬 Employee Sentiment Tracker")
-st.caption("POC – AI-powered analysis of employee feedback and adaptive survey generation")
+st.caption("POC – AI-powered employee feedback analysis & adaptive survey generation")
+st.caption("💡 Each refresh starts with default questions; AI dynamically updates them for the next round.")
 
 # ---------- OPENAI CLIENT ----------
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
@@ -68,9 +69,7 @@ st.subheader("📝 Employee Feedback Form")
 with st.form("employee_form", clear_on_submit=True):
     name = st.text_input("Employee Name (optional)")
     dept = st.selectbox("Department", ["","Engineering","Finance","HR","Operations","Sales","Others"])
-    answers = []
-    for q in st.session_state.questions:
-        answers.append(st.text_area(q))
+    answers = [st.text_area(q) for q in st.session_state.questions]
     submitted = st.form_submit_button("Submit Feedback")
 
     if submitted:
@@ -108,7 +107,7 @@ if st.button("Run AI Batch Classification") and client:
 
     try:
         resp = client.chat.completions.create(model="gpt-4o-mini",
-                                              messages=[{"role": "user", "content": prompt}])
+                                              messages=[{"role":"user","content":prompt}])
         output = resp.choices[0].message.content.strip()
         lines = [l for l in output.splitlines() if "," in l]
         parsed = []
@@ -140,6 +139,14 @@ if not df.empty:
                  title="Sentiment Distribution")
     st.plotly_chart(fig, use_container_width=True)
 
+    st.subheader("🏢 Sentiment by Department")
+    if "department" in df.columns and df["department"].notna().any():
+        dept_summary = df.groupby(["department","sentiment"]).size().reset_index(name="count")
+        fig2 = px.bar(dept_summary, x="department", y="count", color="sentiment",
+                      barmode="group", title="Sentiment by Department")
+        st.plotly_chart(fig2, use_container_width=True)
+
+    st.subheader("🏷️ Topic Distribution")
     st.bar_chart(df["topic"].value_counts(), use_container_width=True)
 
 # ---------- ADAPTIVE QUESTION GENERATOR ----------
@@ -158,17 +165,16 @@ if client:
         """
         try:
             resp = client.chat.completions.create(model="gpt-4o-mini",
-                                                  messages=[{"role": "user", "content": prompt}])
+                                                  messages=[{"role":"user","content":prompt}])
             q_text = resp.choices[0].message.content
             st.markdown("### 🆕 New Suggested Questions:")
             st.write(q_text)
 
-            # extract numbered lines to update form
             new_qs = [line[line.find(".")+1:].strip()
                       for line in q_text.splitlines() if line.strip()[:1].isdigit()]
             if new_qs:
                 st.session_state.questions = new_qs
-                st.success("✅ Questionnaire updated! Refresh the page to see new questions.")
+                st.success("✅ Form updated with new questions! (Will reset to default on refresh)")
             else:
                 st.warning("⚠️ Could not parse new questions.")
         except Exception as e:
@@ -185,14 +191,14 @@ if client and st.button("Generate executive summary"):
     1) Top 3 recurring morale issues
     2) One positive highlight
     3) Mood shift trends
-    4) Depts needing attention
+    4) Departments needing attention
     Keep under 150 words.
     Feedback:
     {joined}
     """
     try:
         resp = client.chat.completions.create(model="gpt-4o-mini",
-                                              messages=[{"role": "user", "content": prompt}])
+                                              messages=[{"role":"user","content":prompt}])
         st.write(resp.choices[0].message.content)
     except Exception as e:
         st.error(f"⚠️ OpenAI error: {e}")
