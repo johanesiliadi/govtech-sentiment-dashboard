@@ -230,6 +230,53 @@ with right_col:
             except Exception as e:
                 st.error(f"⚠️ Error reading file: {e}")
 
+# ---------- AI BATCH CLASSIFICATION ----------
+st.markdown("---")
+st.subheader("🤖 Re-Run AI Sentiment & Topic Classification")
+
+if st.button("Run AI Batch Classification"):
+    if client is None:
+        st.warning("⚠️ No OpenAI key found, running local classification instead.")
+    else:
+        prompt = """
+        You are analyzing employee feedback for an organization.
+        For each feedback line, classify into:
+        - Sentiment: [Positive, Negative, Neutral, Frustrated]
+        - Topic: [Workload, Management Support, Work Environment, Communication, Growth, Others]
+        Respond ONLY in CSV format: id,sentiment,topic
+        """
+        for i, msg in enumerate(df["message"], start=1):
+            prompt += f"{i}. {msg}\n"
+
+        try:
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}]
+            )
+            output = resp.choices[0].message.content.strip()
+
+            # Parse CSV-like response
+            lines = [l for l in output.splitlines() if "," in l]
+            parsed = []
+            for line in lines:
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) >= 3 and parts[0].isdigit():
+                    parsed.append({"id": int(parts[0]), "sentiment": parts[1].title(), "topic": parts[2]})
+
+            if parsed:
+                parsed_df = pd.DataFrame(parsed)
+                df = pd.merge(df, parsed_df, on="id", how="left", suffixes=("", "_ai"))
+                df["sentiment"] = df["sentiment_ai"].combine_first(df["sentiment"])
+                df["topic"] = df["topic_ai"].combine_first(df["topic"])
+                df.drop(columns=["sentiment_ai", "topic_ai"], inplace=True)
+                st.session_state.df = df
+                save_data(df)
+                st.success(f"✅ Updated {len(parsed_df)} rows from AI output and saved.")
+            else:
+                st.warning("⚠️ AI returned no valid lines.")
+        except Exception as e:
+            st.error(f"⚠️ OpenAI error: {e}")
+
 
 # ---------- DASHBOARD ----------
 st.markdown("---")
