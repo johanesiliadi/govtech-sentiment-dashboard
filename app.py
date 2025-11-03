@@ -46,17 +46,32 @@ def load_data():
         df = pd.read_csv("feedback.csv")
         return clean_df_sentiment(df)
     else:
-        return pd.DataFrame(columns=["id", "date", "employee", "department", "message", "sentiment", "topic"])
+        # Default initial data so dashboard & summary show immediately
+        data = [
+            [1, "2025-11-01", "John Tan", "FSC", "System keeps freezing when updating client info", "Negative", "Workload"],
+            [2, "2025-11-01", "Maria Lim", "SSO", "Appreciate the flexible schedule recently", "Positive", "Work Environment"],
+            [3, "2025-11-02", "David Lee", "Welfare Officer", "Sometimes it's hard to get management approval for urgent requests", "Frustrated", "Management Support"],
+            [4, "2025-11-03", "Siti Rahman", "Crisis Shelter", "The new workflow form is confusing and slow", "Negative", "Communication"],
+        ]
+        df = pd.DataFrame(data, columns=["id", "date", "employee", "department", "message", "sentiment", "topic"])
+        df.to_csv("feedback.csv", index=False)
+        return df
 
 def save_data(df):
     df.drop_duplicates(subset="id", keep="last", inplace=True)
     df = clean_df_sentiment(df)
     df.to_csv("feedback.csv", index=False)
 
-# ---------- SESSION STATE ----------
+# ---------- SESSION STATE RESTORE ----------
 if "df" not in st.session_state:
     st.session_state.df = load_data()
-    save_data(st.session_state.df)
+
+if "ai_summary" not in st.session_state:
+    if os.path.exists("last_summary.txt"):
+        with open("last_summary.txt", "r") as f:
+            st.session_state.ai_summary = f.read().strip()
+    else:
+        st.session_state.ai_summary = None
 
 # ---------- LOAD LATEST QUESTIONS ----------
 default_questions = [
@@ -195,7 +210,6 @@ with left_col:
 with right_col:
     st.subheader("📜 Questionnaire & Data Management")
 
-    # Questionnaire history
     if os.path.exists("questions_history.csv"):
         hist = pd.read_csv("questions_history.csv")
         if not hist.empty:
@@ -251,7 +265,7 @@ with right_col:
         except Exception as e:
             st.error(f"⚠️ Error reading CSV: {e}")
 
-    # Demo CSV Generator
+    # ---------- DEMO CSV GENERATOR ----------
     st.markdown("### 🧪 Demo CSV Generator")
     if st.button("Generate Demo CSV"):
         demo_employees = ["John Tan", "Maria Lim", "Ahmad Yusof", "Priya Menon", "Wei Ming"]
@@ -280,12 +294,57 @@ with right_col:
 
         demo_df = pd.DataFrame(demo_responses)
         demo_df.to_csv("demo_feedback.csv", index=False)
-
-        st.success("✅ Demo CSV file generated successfully.")
         csv_data = demo_df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "⬇️ Download Demo Feedback CSV",
-            data=csv_data,
-            file_name="demo_feedback.csv",
-            mime="text/csv"
-        )
+        st.success("✅ Demo CSV file generated successfully.")
+        st.download_button("⬇️ Download Demo Feedback CSV", data=csv_data, file_name="demo_feedback.csv", mime="text/csv")
+
+# ---------- DASHBOARD ----------
+st.markdown("---")
+st.subheader("📊 Sentiment Dashboard")
+
+df_chart = df[df["sentiment"].isin(ALLOWED_SENTIMENTS)].copy()
+if not df_chart.empty:
+    sentiment_color_map = {"Positive": "#21bf73", "Negative": "#ff9f43", "Frustrated": "#ee5253", "Neutral": "#8395a7"}
+    fig = px.bar(df_chart["sentiment"].value_counts().reset_index(), x="index", y="sentiment", color="index",
+                 color_discrete_map=sentiment_color_map, labels={"index": "Sentiment", "sentiment": "Count"},
+                 title="Sentiment Distribution")
+    st.plotly_chart(fig, use_container_width=True)
+
+    dept_summary = df_chart.groupby(["department", "sentiment"]).size().reset_index(name="count")
+    fig2 = px.bar(dept_summary, x="department", y="count", color="sentiment", barmode="group",
+                  color_discrete_map=sentiment_color_map, title="Sentiment by Division")
+    st.plotly_chart(fig2, use_container_width=True)
+
+# ---------- EXECUTIVE SUMMARY ----------
+st.markdown("---")
+st.subheader("🧠 AI Insights Summary")
+
+if client and st.button("Generate executive summary"):
+    joined = "\n".join(df["message"].tolist())
+    prompt = f"""
+    Summarize HR insights:
+    1) Top 3 recurring morale issues
+    2) One positive highlight
+    3) Mood shift trends
+    4) Divisions needing attention
+    Keep under 250 words.
+    Feedback:
+    {joined}
+    """
+    try:
+        with st.spinner("Generating summary..."):
+            resp = client.chat.completions.create(model="gpt-4o-mini",
+                                                  messages=[{"role": "user", "content": prompt}])
+            summary = resp.choices[0].message.content.strip()
+            st.session_state.ai_summary = summary
+            with open("last_summary.txt", "w") as f:
+                f.write(summary)
+            st.success("✅ New executive summary generated and saved!")
+    except Exception as e:
+        st.error(f"⚠️ OpenAI error: {e}")
+
+if st.session_state.ai_summary:
+    st.markdown("### 🧾 Latest Executive Summary:")
+    st.write(st.session_state.ai_summary)
+else:
+    st.info("No executive summary generated yet.")

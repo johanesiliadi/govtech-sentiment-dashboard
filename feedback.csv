@@ -1,5 +1,5 @@
 id,date,employee,department,message,sentiment,topic
-1,2025-11-01,John Tan,FSC,"System keeps freezing when updating client info",Negative,Workload
-2,2025-11-01,Maria Lim,SSO,"Appreciate the flexible schedule recently",Positive,Work Environment
-3,2025-11-02,David Lee,Welfare Officer,"Sometimes it's hard to get management approval for urgent requests",Frustrated,Management Support
-4,2025-11-03,Siti Rahman,Crisis Shelter,"The new workflow form is confusing and slow",Negative,Communication
+1,2025-11-01,John Tan,FSC,System keeps freezing when updating client info,Negative,Workload
+2,2025-11-01,Maria Lim,SSO,Appreciate the flexible schedule recently,Positive,Work Environment
+3,2025-11-02,David Lee,Welfare Officer,Sometimes it's hard to get management approval for urgent requests,Frustrated,Management Support
+4,2025-11-03,Siti Rahman,Crisis Shelter,The new workflow form is confusing and slow,Negative,Communication
