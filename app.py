@@ -150,7 +150,9 @@ if not df.empty:
     st.bar_chart(df["topic"].value_counts(), use_container_width=True)
 
 # ---------- ADAPTIVE QUESTION GENERATOR ----------
+# ---------- ADAPTIVE QUESTION GENERATOR ----------
 st.subheader("🧩 Generate Next Questionnaire")
+
 if client:
     if st.button("Generate next questionnaire"):
         sentiment_summary = df["sentiment"].value_counts().to_dict()
@@ -163,18 +165,28 @@ if client:
         Focus on weak or frustrated areas; include one positive reflection.
         Number them 1–5.
         """
+
         try:
-            resp = client.chat.completions.create(model="gpt-4o-mini",
-                                                  messages=[{"role":"user","content":prompt}])
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}]
+            )
+
             q_text = resp.choices[0].message.content
             st.markdown("### 🆕 New Suggested Questions:")
             st.write(q_text)
 
-            new_qs = [line[line.find(".")+1:].strip()
-                      for line in q_text.splitlines() if line.strip()[:1].isdigit()]
+            # Extract numbered questions from AI output
+            new_qs = [
+                line[line.find(".")+1:].strip()
+                for line in q_text.splitlines()
+                if line.strip() and line.strip()[0].isdigit()
+            ]
+
             if new_qs:
                 st.session_state.questions = new_qs
-                st.success("✅ Form updated with new questions! (Will reset to default on refresh)")
+                st.success("✅ Form updated with new questions!")
+                st.experimental_rerun()  # 👈 instantly refresh to show new form
             else:
                 st.warning("⚠️ Could not parse new questions.")
         except Exception as e:
