@@ -29,40 +29,47 @@ def save_data(df):
 # ---------- SESSION STATE ----------
 if "df" not in st.session_state:
     st.session_state.df = load_data()
+
+# ---------- LOAD LATEST QUESTIONS ----------
+default_questions = [
+    "How do you feel about your workload recently?",
+    "How supported do you feel by your manager or team?",
+    "Any suggestions to improve your work environment?"
+]
+
+latest_qs = default_questions
+if os.path.exists("questions_history.csv"):
+    try:
+        hist_df = pd.read_csv("questions_history.csv")
+        if not hist_df.empty:
+            last_q_str = hist_df.iloc[-1]["questions"]
+            latest_qs = [q.strip() for q in last_q_str.split("|") if q.strip()]
+    except Exception as e:
+        st.warning(f"⚠️ Could not read questions history: {e}")
+
 if "questions" not in st.session_state:
-    st.session_state.questions = [
-        "How do you feel about your workload recently?",
-        "How supported do you feel by your manager or team?",
-        "Any suggestions to improve your work environment?"
-    ]
+    st.session_state.questions = latest_qs
+
 df = st.session_state.df
 
 # ---------- LOCAL CLASSIFIERS ----------
 def local_sentiment(text: str) -> str:
     t = text.lower()
-
-    # Frustrated (emotionally charged)
     if any(w in t for w in [
         "angry", "frustrated", "upset", "annoyed", "sick of", "fed up", "ridiculous",
         "every time", "always", "again and again", "tired of", "waste of time", "so bad"
     ]):
         return "Frustrated"
-
-    # Negative (factual dissatisfaction but calm)
     if any(w in t for w in [
         "cannot", "can't", "not working", "slow", "error", "bad", "fail", "problem",
         "doesn't work", "unavailable", "broken", "issue", "bug"
     ]):
         return "Negative"
-
-    # Positive
     if any(w in t for w in [
         "thank", "thanks", "good", "great", "appreciate", "helpful", "well done",
         "love", "happy", "enjoy", "awesome", "fantastic"
     ]):
         return "Positive"
-
-    # Neutral
     return "Neutral"
 
 def local_topic(text: str) -> str:
@@ -128,7 +135,17 @@ if client:
 
             if new_qs:
                 st.session_state.questions = new_qs
-                st.success("✅ Form updated with new AI-generated questions!")
+                # Save to history immediately
+                latest_qs = " | ".join(st.session_state.questions)
+                hist_df = pd.read_csv("questions_history.csv") if os.path.exists("questions_history.csv") else pd.DataFrame(columns=["timestamp", "questions"])
+                new_entry = pd.DataFrame({
+                    "timestamp": [datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
+                    "questions": [latest_qs]
+                })
+                hist_df = pd.concat([hist_df, new_entry], ignore_index=True)
+                hist_df.to_csv("questions_history.csv", index=False)
+
+                st.success("✅ Form updated and saved to history!")
                 st.rerun()
             else:
                 st.warning("⚠️ Could not parse new questions.")
@@ -136,11 +153,7 @@ if client:
             st.error(f"⚠️ OpenAI error: {e}")
 
     if st.button("🔄 Reset to Default Questions"):
-        st.session_state.questions = [
-            "How do you feel about your workload recently?",
-            "How supported do you feel by your manager or team?",
-            "Any suggestions to improve your work environment?"
-        ]
+        st.session_state.questions = default_questions
         st.info("Form reset to default questions.")
         st.rerun()
 else:
@@ -219,26 +232,15 @@ with right_col:
     if not os.path.exists("questions_history.csv"):
         pd.DataFrame(columns=["timestamp", "questions"]).to_csv("questions_history.csv", index=False)
 
-    if "questions" in st.session_state and st.session_state.questions:
-        latest_qs = " | ".join(st.session_state.questions)
-        history_df = pd.read_csv("questions_history.csv")
-        if len(history_df) == 0 or history_df.iloc[-1]["questions"] != latest_qs:
-            new_entry = pd.DataFrame({
-                "timestamp": [datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
-                "questions": [latest_qs]
-            })
-            history_df = pd.concat([history_df, new_entry], ignore_index=True)
-            history_df.to_csv("questions_history.csv", index=False)
-
     try:
         hist = pd.read_csv("questions_history.csv")
         if not hist.empty:
             st.markdown("**🕓 Recent Questionnaires:**")
-            st.dataframe(hist.tail(3), use_container_width=True, hide_index=True)
+            st.dataframe(hist.tail(3).iloc[::-1], use_container_width=True, hide_index=True)
         else:
             st.caption("No questionnaires generated yet.")
-    except Exception:
-        st.warning("⚠️ Could not load question history file.")
+    except Exception as e:
+        st.warning(f"⚠️ Could not load question history: {e}")
 
     st.download_button("⬇️ Download Current Questions (CSV)",
                        data="\n".join(st.session_state.questions),
@@ -300,7 +302,6 @@ else:
 st.markdown("---")
 st.subheader("🧠 AI Insights Summary")
 
-# Keep last generated summary in session
 if "ai_summary" not in st.session_state:
     st.session_state.ai_summary = None
 
@@ -328,10 +329,8 @@ if client and st.button("Generate executive summary"):
     except Exception as e:
         st.error(f"⚠️ OpenAI error: {e}")
 
-# Always show the last summary (if any)
 if st.session_state.ai_summary:
     st.markdown("### 🧾 Latest Executive Summary:")
     st.write(st.session_state.ai_summary)
 else:
     st.info("No executive summary generated yet.")
-
