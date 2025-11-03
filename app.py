@@ -65,21 +65,33 @@ def local_topic(text: str) -> str:
 
 
 # ---------- ADAPTIVE QUESTION GENERATOR ----------
+# ---------- ADAPTIVE QUESTION GENERATOR ----------
 st.subheader("🧩 Generate Next Questionnaire")
 
 if client:
     col1, col2 = st.columns([2, 1])
     with col1:
         if st.button("Generate next questionnaire"):
+            # Summarize current trends
             sentiment_summary = df["sentiment"].value_counts().to_dict()
             top_topics = df["topic"].value_counts().nlargest(3).index.tolist()
-            summary_text = f"Sentiment mix: {sentiment_summary}. Top themes: {', '.join(top_topics)}."
+            sample_texts = "\n".join(df["message"].tail(10).tolist()) if not df.empty else "No feedback yet."
+
+            # Prompt to OpenAI
             prompt = f"""
             You are an HR assistant creating adaptive employee engagement questionnaires.
-            Based on these results: {summary_text}
-            Generate 5 short open-ended questions (under 20 words).
-            Focus on weak or frustrated areas; include one positive reflection.
-            Number them 1–5.
+
+            Here are recent employee feedback comments:
+            {sample_texts}
+
+            Sentiment mix: {sentiment_summary}.
+            Top themes: {', '.join(top_topics)}.
+
+            Generate 5 short, open-ended questions (under 20 words).
+            - Focus on areas where morale or sentiment appears negative or frustrated.
+            - Include at least one positive reflection question.
+            - Avoid repeating the same topics.
+            - Number them 1–5.
             """
 
             try:
@@ -87,10 +99,12 @@ if client:
                     model="gpt-4o-mini",
                     messages=[{"role": "user", "content": prompt}]
                 )
+
                 q_text = resp.choices[0].message.content
                 st.markdown("### 🆕 New Suggested Questions:")
                 st.write(q_text)
 
+                # Extract numbered questions from AI output
                 new_qs = [
                     line[line.find(".")+1:].strip()
                     for line in q_text.splitlines()
@@ -99,8 +113,8 @@ if client:
 
                 if new_qs:
                     st.session_state.questions = new_qs
-                    st.success("✅ Form updated with new questions!")
-                    st.rerun()
+                    st.success("✅ Form updated with new AI-generated questions!")
+                    st.rerun()  # refresh form instantly
                 else:
                     st.warning("⚠️ Could not parse new questions.")
             except Exception as e:
@@ -117,7 +131,6 @@ if client:
             st.rerun()
 else:
     st.info("Set OPENAI_API_KEY to enable adaptive question generation.")
-
 
 # ---------- EMPLOYEE FEEDBACK FORM ----------
 st.subheader("📝 Employee Feedback Form")
