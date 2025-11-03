@@ -9,7 +9,6 @@ from openai import OpenAI
 st.set_page_config(page_title="Employee Sentiment Tracker", page_icon="💬", layout="wide")
 st.title("💬 Employee Sentiment Tracker")
 st.caption("POC – AI-powered employee feedback analysis & adaptive survey generation")
-st.caption("💡 Each refresh starts with default questions; AI dynamically updates them for the next round.")
 
 # ---------- OPENAI CLIENT ----------
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
@@ -41,7 +40,7 @@ df = st.session_state.df
 # ---------- LOCAL CLASSIFIERS ----------
 def local_sentiment(text: str) -> str:
     t = text.lower()
-    if any(w in t for w in ["angry", "frustrated", "upset", "annoyed", "overwhelmed", "stressed", "tired", "burnout"]):
+    if any(w in t for w in ["angry", "frustrated", "upset", "annoyed", "stressed", "tired", "burnout"]):
         return "Frustrated"
     if any(w in t for w in ["cannot", "not working", "slow", "error", "bad", "fail", "issue", "problem", "negative", "hard", "unfair"]):
         return "Negative"
@@ -65,19 +64,24 @@ def local_topic(text: str) -> str:
 
 
 # ---------- ADAPTIVE QUESTION GENERATOR ----------
-# ---------- ADAPTIVE QUESTION GENERATOR ----------
 st.subheader("🧩 Generate Next Questionnaire")
 
 if client:
     col1, col2 = st.columns([2, 1])
     with col1:
         if st.button("Generate next questionnaire"):
-            # Summarize current trends
+            # Show recent comments for demo context
+            if not df.empty:
+                st.markdown("### 🗣️ Recent Employee Comments (last 5)")
+                for msg in df["message"].tail(5):
+                    st.write(f"- {msg}")
+            else:
+                st.info("No feedback yet. Please add some responses first.")
+
             sentiment_summary = df["sentiment"].value_counts().to_dict()
             top_topics = df["topic"].value_counts().nlargest(3).index.tolist()
             sample_texts = "\n".join(df["message"].tail(10).tolist()) if not df.empty else "No feedback yet."
 
-            # Prompt to OpenAI
             prompt = f"""
             You are an HR assistant creating adaptive employee engagement questionnaires.
 
@@ -87,11 +91,10 @@ if client:
             Sentiment mix: {sentiment_summary}.
             Top themes: {', '.join(top_topics)}.
 
-            Generate 5 short, open-ended questions (under 20 words).
-            - Focus on areas where morale or sentiment appears negative or frustrated.
-            - Include at least one positive reflection question.
-            - Avoid repeating the same topics.
-            - Number them 1–5.
+            Generate 5 short open-ended questions (under 20 words).
+            Focus on areas where morale or sentiment appears negative or frustrated.
+            Include one positive reflection question.
+            Number them 1–5.
             """
 
             try:
@@ -104,7 +107,6 @@ if client:
                 st.markdown("### 🆕 New Suggested Questions:")
                 st.write(q_text)
 
-                # Extract numbered questions from AI output
                 new_qs = [
                     line[line.find(".")+1:].strip()
                     for line in q_text.splitlines()
@@ -114,7 +116,7 @@ if client:
                 if new_qs:
                     st.session_state.questions = new_qs
                     st.success("✅ Form updated with new AI-generated questions!")
-                    st.rerun()  # refresh form instantly
+                    st.rerun()
                 else:
                     st.warning("⚠️ Could not parse new questions.")
             except Exception as e:
@@ -132,14 +134,13 @@ if client:
 else:
     st.info("Set OPENAI_API_KEY to enable adaptive question generation.")
 
+
 # ---------- EMPLOYEE FEEDBACK FORM ----------
 st.subheader("📝 Employee Feedback Form")
 
 with st.form("employee_form", clear_on_submit=True):
     name = st.text_input("Employee Name (optional)")
     dept = st.selectbox("Department", ["", "Engineering", "Finance", "HR", "Operations", "Sales", "Others"])
-
-    # Dynamically show questions
     answers = [st.text_area(q) for q in st.session_state.questions]
     submitted = st.form_submit_button("Submit Feedback")
 
@@ -167,66 +168,117 @@ with st.form("employee_form", clear_on_submit=True):
 df = st.session_state.df
 
 
-# ---------- AI BATCH CLASSIFICATION ----------
-st.subheader("🤖 AI Batch Classification (sentiment + topic)")
-if st.button("Run AI Batch Classification") and client:
-    prompt = """
-    You are analyzing employee feedback for an organization.
-    For each feedback line, classify into:
-    - Sentiment: [Positive, Negative, Neutral, Frustrated]
-    - Topic: [Workload, Management Support, Work Environment, Communication, Growth, Others]
-    Respond ONLY in CSV format: id,sentiment,topic
-    """
-    for i, msg in enumerate(df["message"], start=1):
-        prompt += f"{i}. {msg}\n"
+# ---------- QUESTIONNAIRE HISTORY + DATA MANAGEMENT ----------
+st.markdown("---")
+st.subheader("📜 Questionnaire & Data Management")
 
+if not os.path.exists("questions_history.csv"):
+    pd.DataFrame(columns=["timestamp", "questions"]).to_csv("questions_history.csv", index=False)
+if not os.path.exists("feedback.csv"):
+    pd.DataFrame(columns=["id","date","employee","department","message","sentiment","topic"]).to_csv("feedback.csv", index=False)
+
+# Save new questionnaire to history
+if "questions" in st.session_state and st.session_state.questions:
+    latest_qs = " | ".join(st.session_state.questions)
+    history_df = pd.read_csv("questions_history.csv")
+    if len(history_df) == 0 or history_df.iloc[-1]["questions"] != latest_qs:
+        new_entry = pd.DataFrame({
+            "timestamp": [datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
+            "questions": [latest_qs]
+        })
+        history_df = pd.concat([history_df, new_entry], ignore_index=True)
+        history_df.to_csv("questions_history.csv", index=False)
+
+st.markdown("### 🕓 Recent Questionnaires")
+try:
+    hist = pd.read_csv("questions_history.csv")
+    if not hist.empty:
+        st.dataframe(hist.tail(5), use_container_width=True)
+    else:
+        st.info("No questionnaires generated yet.")
+except Exception:
+    st.warning("⚠️ Could not load question history file.")
+
+# Download buttons
+st.download_button("⬇️ Download Current Questions (CSV)",
+                   data="\n".join(st.session_state.questions),
+                   file_name="current_questions.csv",
+                   mime="text/csv")
+
+if not df.empty:
+    csv_data = df.to_csv(index=False).encode("utf-8")
+    st.download_button("⬇️ Download All Feedback Responses (CSV)",
+                       data=csv_data,
+                       file_name="employee_feedback.csv",
+                       mime="text/csv")
+
+# Upload responses
+st.markdown("### 📂 Upload Responses (CSV)")
+uploaded_file = st.file_uploader("Upload employee feedback CSV", type=["csv"])
+if uploaded_file is not None:
     try:
-        resp = client.chat.completions.create(model="gpt-4o-mini",
-                                              messages=[{"role": "user", "content": prompt}])
-        output = resp.choices[0].message.content.strip()
-        lines = [l for l in output.splitlines() if "," in l]
-        parsed = []
-        for line in lines:
-            parts = [p.strip() for p in line.split(",")]
-            if len(parts) >= 3 and parts[0].isdigit():
-                parsed.append({"id": int(parts[0]), "sentiment": parts[1].title(), "topic": parts[2]})
-        if parsed:
-            parsed_df = pd.DataFrame(parsed)
-            df = pd.merge(df, parsed_df, on="id", how="left", suffixes=("", "_ai"))
-            df["sentiment"] = df["sentiment_ai"].combine_first(df["sentiment"])
-            df["topic"] = df["topic_ai"].combine_first(df["topic"])
-            df.drop(columns=["sentiment_ai", "topic_ai"], inplace=True)
-            st.session_state.df = df
-            save_data(df)
-            st.success(f"✅ Updated {len(parsed_df)} rows from AI output and saved.")
+        uploaded_df = pd.read_csv(uploaded_file)
+        required_cols = {"employee", "department", "message"}
+        if required_cols.issubset(uploaded_df.columns):
+            uploaded_df["id"] = range(int(df["id"].max()) + 1 if len(df) else 1,
+                                      int(df["id"].max()) + 1 + len(uploaded_df))
+            uploaded_df["date"] = datetime.now().strftime("%Y-%m-%d")
+            uploaded_df["sentiment"] = uploaded_df["message"].apply(local_sentiment)
+            uploaded_df["topic"] = uploaded_df["message"].apply(local_topic)
+            st.session_state.df = pd.concat([st.session_state.df, uploaded_df], ignore_index=True)
+            save_data(st.session_state.df)
+            st.success(f"✅ Imported {len(uploaded_df)} feedback entries successfully!")
+            st.rerun()
         else:
-            st.warning("⚠️ AI returned no valid lines.")
+            st.error("❌ CSV must contain 'employee', 'department', and 'message' columns.")
     except Exception as e:
-        st.error(f"⚠️ OpenAI error: {e}")
+        st.error(f"⚠️ Error reading file: {e}")
 
 
 # ---------- DASHBOARD ----------
+st.markdown("---")
 st.subheader("📊 Sentiment Dashboard")
+
 if not df.empty:
+    sentiment_color_map = {
+        "Positive": "#21bf73",
+        "Negative": "#ff9f43",
+        "Frustrated": "#ee5253",
+        "Neutral": "#8395a7"
+    }
+
+    # Sentiment Distribution
     sent_count = df["sentiment"].value_counts().reset_index()
     sent_count.columns = ["sentiment", "count"]
     fig = px.bar(sent_count, x="sentiment", y="count", color="sentiment",
-                 color_discrete_map={"Frustrated": "red", "Negative": "orange", "Positive": "green", "Neutral": "gray"},
+                 color_discrete_map=sentiment_color_map,
+                 category_orders={"sentiment": list(sentiment_color_map.keys())},
                  title="Sentiment Distribution")
     st.plotly_chart(fig, use_container_width=True)
 
+    # Sentiment by Department
     st.subheader("🏢 Sentiment by Department")
     if "department" in df.columns and df["department"].notna().any():
         dept_summary = df.groupby(["department", "sentiment"]).size().reset_index(name="count")
         fig2 = px.bar(dept_summary, x="department", y="count", color="sentiment",
-                      barmode="group", title="Sentiment by Department")
+                      barmode="group", title="Sentiment by Department",
+                      color_discrete_map=sentiment_color_map,
+                      category_orders={"sentiment": list(sentiment_color_map.keys())})
         st.plotly_chart(fig2, use_container_width=True)
 
     st.subheader("🏷️ Topic Distribution")
     st.bar_chart(df["topic"].value_counts(), use_container_width=True)
 
+# Clear data
+st.subheader("🧹 Data Controls")
+if st.button("Clear all feedback data"):
+    st.session_state.df = pd.DataFrame(columns=["id","date","employee","department","message","sentiment","topic"])
+    save_data(st.session_state.df)
+    st.success("✅ All feedback cleared. Charts reset.")
+    st.rerun()
 
 # ---------- EXECUTIVE SUMMARY ----------
+st.markdown("---")
 st.subheader("🧠 AI Insights Summary")
 if client and st.button("Generate executive summary"):
     joined = "\n".join(df["message"].tolist())
