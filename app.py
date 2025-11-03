@@ -205,85 +205,13 @@ with left:
                 st.success(f"✅ Saved — Sentiment: {sentiment}, Topic: {topic}")
                 st.rerun()
 
-# ---------- RIGHT: MANAGEMENT ----------
+# ---------- RIGHT: QUESTION HISTORY ----------
 with right:
-    st.subheader("📜 Questionnaire & Data Management")
+    st.subheader("📜 Questionnaire History")
     if os.path.exists(QUESTIONS_FILE):
         hist = pd.read_csv(QUESTIONS_FILE)
         if not hist.empty:
             st.dataframe(hist.tail(5).iloc[::-1], use_container_width=True, hide_index=True)
-
-    st.download_button("⬇️ Download Current Questions",
-                       data="\n".join(st.session_state.questions),
-                       file_name="current_questions.csv", mime="text/csv")
-
-    if not df.empty:
-        st.download_button("⬇️ Download All Feedback",
-                           data=df.to_csv(index=False).encode("utf-8"),
-                           file_name="employee_feedback.csv", mime="text/csv")
-
-    # ----- FIXED UPLOAD -----
-    uploaded = st.file_uploader("📤 Upload CSV (id,date,employee,department,message)", type=["csv"])
-    if uploaded:
-        try:
-            # Use Python engine to handle messy commas safely
-            new_df = pd.read_csv(uploaded, on_bad_lines='skip', engine='python')
-
-            if "message" not in new_df.columns:
-                st.error("Uploaded CSV must contain a 'message' column.")
-            else:
-                # Clean and classify
-                valid_rows = new_df[new_df["message"].notna()].copy()
-                valid_rows["message"] = valid_rows["message"].astype(str)
-
-                with st.spinner("Classifying uploaded feedback..."):
-                    sentiments, topics = classify_text_batch_with_ai(valid_rows)
-
-                valid_rows["sentiment"] = sentiments[:len(valid_rows)]
-                valid_rows["topic"] = topics[:len(valid_rows)]
-
-                invalid_rows = new_df[~new_df.index.isin(valid_rows.index)].copy()
-                if not invalid_rows.empty:
-                    invalid_rows["sentiment"] = "Neutral"
-                    invalid_rows["topic"] = "Others"
-
-                merged_df = pd.concat([valid_rows, invalid_rows], ignore_index=True)
-                st.session_state.df = pd.concat([st.session_state.df, merged_df], ignore_index=True)
-                save_data(st.session_state.df)
-
-                st.success(f"✅ Classified {len(valid_rows)} valid feedback entries (skipped {len(invalid_rows)} problematic rows).")
-                st.rerun()
-        except Exception as e:
-            st.error(f"Upload failed: {e}")
-
-    # ----- DEMO CSV GENERATOR -----
-    if client and st.button("Generate Demo CSV"):
-        prompt = f"""
-        Generate 5 realistic employee feedback entries in CSV format with the following columns:
-        id,date,employee,department,message
-        - Use random Singaporean names for employees.
-        - Departments should be one of: {', '.join(DIVISIONS[1:])}.
-        - Each message should respond naturally to one of these questions:
-          {st.session_state.questions}
-        - Responses should be short, varied, and sound like real people.
-        - Do not include sentiment or topic columns.
-        - Output ONLY the CSV, no explanations or text above or below it.
-        """
-        with st.spinner("Generating demo feedback..."):
-            resp = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}]
-            )
-            csv_text = resp.choices[0].message.content.strip()
-            import re
-            csv_match = re.search(r"id\s*,\s*date\s*,\s*employee\s*,\s*department\s*,\s*message[\s\S]+", csv_text, re.IGNORECASE)
-            if csv_match:
-                csv_text = csv_match.group(0).strip()
-
-        st.download_button("⬇️ Download Demo Feedback CSV",
-                           data=csv_text.encode("utf-8"),
-                           file_name="demo_feedback.csv",
-                           mime="text/csv")
 
 # ---------- DASHBOARD ----------
 st.markdown("---")
