@@ -62,15 +62,12 @@ def normalize_sentiment(val):
     return "Neutral"
 
 def classify_text_batch_with_ai(df):
-    # Keep only rows that actually have a text message
     df = df[df["message"].notna()].copy()
     df["message"] = df["message"].astype(str)
     if df.empty:
         return ["Neutral"], ["Others"]
 
-    msgs = "\n".join(
-        [f"{i+1}. {m}" for i, m in enumerate(df["message"].tolist()) if str(m).strip()]
-    )
+    msgs = "\n".join([f"{i+1}. {m}" for i, m in enumerate(df["message"].tolist()) if str(m).strip()])
     prompt = f"""
     You are classifying multiple employee feedback messages.
 
@@ -93,7 +90,8 @@ def classify_text_batch_with_ai(df):
         sentiments.append(normalize_sentiment(parts[0]) if parts else "Neutral")
         topics.append(parts[1] if len(parts) > 1 else "Others")
     while len(sentiments) < len(df):
-        sentiments.append("Neutral"); topics.append("Others")
+        sentiments.append("Neutral")
+        topics.append("Others")
     return sentiments[:len(df)], topics[:len(df)]
 
 def update_sentiment_trend_per_run(df):
@@ -116,10 +114,12 @@ def load_latest_questions():
         "How supported do you feel by your manager or team?",
         "Any suggestions to improve your work environment?",
     ]
-    if not os.path.exists(QUESTIONS_FILE): return default_q
+    if not os.path.exists(QUESTIONS_FILE): 
+        return default_q
     try:
         df = pd.read_csv(QUESTIONS_FILE)
-        if df.empty: return default_q
+        if df.empty: 
+            return default_q
         last = df.iloc[-1]["questions"]
         return [q.strip() for q in str(last).split("|") if q.strip()]
     except Exception:
@@ -136,8 +136,10 @@ def append_questions_history(questions):
     df.to_csv(QUESTIONS_FILE, index=False)
 
 # ---------- STATE ----------
-if "df" not in st.session_state: st.session_state.df = load_data_cached()
-if "questions" not in st.session_state: st.session_state.questions = load_latest_questions()
+if "df" not in st.session_state: 
+    st.session_state.df = load_data_cached()
+if "questions" not in st.session_state: 
+    st.session_state.questions = load_latest_questions()
 if "ai_summary" not in st.session_state:
     st.session_state.ai_summary = open(SUMMARY_FILE).read().strip() if os.path.exists(SUMMARY_FILE) else None
 df = st.session_state.df
@@ -220,19 +222,36 @@ with right:
                            data=df.to_csv(index=False).encode("utf-8"),
                            file_name="employee_feedback.csv", mime="text/csv")
 
+    # ----- FIXED UPLOAD -----
     uploaded = st.file_uploader("📤 Upload CSV (id,date,employee,department,message)", type=["csv"])
     if uploaded:
-        new_df = pd.read_csv(uploaded)
-        with st.spinner("Classifying uploaded feedback..."):
-            sentiments, topics = classify_text_batch_with_ai(new_df)
-        new_df["sentiment"], new_df["topic"] = sentiments, topics
-        st.session_state.df = pd.concat([st.session_state.df, new_df], ignore_index=True)
-        save_data(st.session_state.df)
-        st.success(f"✅ Classified {len(new_df)} uploaded entries.")
-        st.rerun()
+        try:
+            new_df = pd.read_csv(uploaded)
+            if "message" not in new_df.columns:
+                st.error("Uploaded CSV must contain a 'message' column.")
+            else:
+                valid_rows = new_df[new_df["message"].notna()].copy()
+                valid_rows["message"] = valid_rows["message"].astype(str)
+                with st.spinner("Classifying uploaded feedback..."):
+                    sentiments, topics = classify_text_batch_with_ai(valid_rows)
+                valid_rows["sentiment"] = sentiments[:len(valid_rows)]
+                valid_rows["topic"] = topics[:len(valid_rows)]
 
-        # ----- AI-POWERED DEMO CSV GENERATOR -----
-    if client and st.button("🧪 Generate Demo CSV"):
+                invalid_rows = new_df[~new_df.index.isin(valid_rows.index)].copy()
+                if not invalid_rows.empty:
+                    invalid_rows["sentiment"] = "Neutral"
+                    invalid_rows["topic"] = "Others"
+
+                merged_df = pd.concat([valid_rows, invalid_rows], ignore_index=True)
+                st.session_state.df = pd.concat([st.session_state.df, merged_df], ignore_index=True)
+                save_data(st.session_state.df)
+                st.success(f"✅ Classified {len(valid_rows)} valid feedback entries (skipped {len(invalid_rows)} blank rows).")
+                st.rerun()
+        except Exception as e:
+            st.error(f"Upload failed: {e}")
+
+    # ----- DEMO CSV GENERATOR -----
+    if client and st.button("Generate Demo CSV"):
         prompt = f"""
         Generate 5 realistic employee feedback entries in CSV format with the following columns:
         id,date,employee,department,message
@@ -244,15 +263,12 @@ with right:
         - Do not include sentiment or topic columns.
         - Output ONLY the CSV, no explanations or text above or below it.
         """
-
-        with st.spinner("Generating demo feedback ..."):
+        with st.spinner("Generating demo feedback..."):
             resp = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}]
             )
             csv_text = resp.choices[0].message.content.strip()
-
-            # --- Clean up extra words if model added polite intro text ---
             import re
             csv_match = re.search(r"id\s*,\s*date\s*,\s*employee\s*,\s*department\s*,\s*message[\s\S]+", csv_text, re.IGNORECASE)
             if csv_match:
@@ -262,7 +278,6 @@ with right:
                            data=csv_text.encode("utf-8"),
                            file_name="demo_feedback.csv",
                            mime="text/csv")
-
 
 # ---------- DASHBOARD ----------
 st.markdown("---")
