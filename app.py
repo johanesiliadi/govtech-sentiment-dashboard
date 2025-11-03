@@ -246,13 +246,52 @@ with right:
         try:
             new_df = pd.read_csv(uploaded)
             new_df["message"] = new_df["message"].fillna("").astype(str)
-            new_df["sentiment"], new_df["topic"] = zip(*new_df["message"].apply(classify_text_with_ai_or_local))
+
+            # --- If OpenAI key available, classify all messages in ONE batch call ---
+            if client and not new_df.empty:
+                messages_text = "\n".join(
+                    [f"{i+1}. {m}" for i, m in enumerate(new_df["message"].tolist())]
+                )
+                prompt = f"""
+                You are classifying employee feedback messages in bulk.
+                Return a CSV with these columns: row_id,sentiment,topic
+                Sentiment ∈ [Positive, Negative, Neutral, Frustrated]
+                Topic ∈ [Workload, Management Support, Work Environment, Communication, Growth, Others]
+
+                Messages:
+                {messages_text}
+                """
+
+                with st.spinner("Analyzing all uploaded feedback in a single batch..."):
+                    resp = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[{"role": "user", "content": prompt}]
+                    )
+                    import io
+                    result_text = resp.choices[0].message.content.strip()
+
+                # --- Parse the AI result back into a DataFrame ---
+                try:
+                    result_df = pd.read_csv(io.StringIO(result_text))
+                    # Merge back on row_id
+                    new_df["sentiment"] = result_df["sentiment"]
+                    new_df["topic"] = result_df["topic"]
+                except Exception as parse_error:
+                    st.warning(f"⚠️ Could not parse AI output cleanly, using local classification. ({parse_error})")
+                    new_df["sentiment"], new_df["topic"] = zip(*new_df["message"].apply(classify_text_with_ai_or_local))
+            else:
+                # --- No OpenAI key: fallback to local classification ---
+                new_df["sentiment"], new_df["topic"] = zip(*new_df["message"].apply(classify_text_with_ai_or_local))
+
+            # --- Save combined data ---
             st.session_state.df = pd.concat([st.session_state.df, new_df], ignore_index=True)
             save_data(st.session_state.df)
-            st.success(f"✅ Uploaded & classified {len(new_df)} entries.")
+            st.success(f"✅ Uploaded & classified {len(new_df)} entries (batch processed).")
             st.rerun()
+
         except Exception as e:
             st.error(f"⚠️ Upload error: {e}")
+
 
     # ---- AI-driven Demo CSV Generator (answers all 5 questions) ----
     if st.button("🧪 Generate AI Demo CSV"):
