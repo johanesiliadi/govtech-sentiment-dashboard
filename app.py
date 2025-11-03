@@ -1,9 +1,11 @@
-import os, random, re, io, csv
+import os
+import random
 from datetime import datetime
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+# ---------- OPTIONAL OPENAI IMPORT ----------
 try:
     from openai import OpenAI
 except Exception:
@@ -12,30 +14,34 @@ except Exception:
 # ---------- PAGE CONFIG ----------
 st.set_page_config(page_title="Employee Sentiment Tracker", page_icon="💬", layout="wide")
 st.title("💬 Employee Sentiment Tracker")
-st.caption("POC – Employee feedback sentiment analysis and adaptive survey generation")
+st.caption("POC – AI-powered employee feedback analysis & adaptive survey generation")
 
 # ---------- OPENAI CLIENT ----------
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_KEY) if (OpenAI and OPENAI_KEY) else None
 
 # ---------- CONSTANTS ----------
+ALLOWED_SENTIMENTS = ["Positive", "Negative", "Frustrated", "Neutral"]
+SENTIMENT_WEIGHTS = {"Positive": 1, "Neutral": 0, "Negative": -1, "Frustrated": -2}
+DIVISIONS = ["", "FSC", "SSO", "Crisis Shelter", "Transitional Shelter", "Care Staff", "Welfare Officer", "Others"]
+SENTIMENT_COLORS = {
+    "Positive": "#21bf73",
+    "Negative": "#ff9f43",
+    "Frustrated": "#ee5253",
+    "Neutral":  "#8395a7",
+}
 DATA_FILE = "feedback.csv"
 QUESTIONS_FILE = "questions_history.csv"
 SUMMARY_FILE = "last_summary.txt"
 TREND_FILE = "sentiment_trend.csv"
 
-DIVISIONS = ["", "FSC", "SSO", "Crisis Shelter", "Transitional Shelter", "Care Staff", "Welfare Officer", "Others"]
-ALLOWED_SENTIMENTS = ["Positive", "Negative", "Frustrated", "Neutral"]
-SENTIMENT_WEIGHTS = {"Positive": 1, "Neutral": 0, "Negative": -1, "Frustrated": -2}
-SENTIMENT_COLORS = {
-    "Positive": "#21bf73", "Negative": "#ff9f43", "Frustrated": "#ee5253", "Neutral": "#8395a7",
-}
-
 # ---------- HELPERS ----------
-def load_data():
+@st.cache_data
+def load_data_cached():
     if os.path.exists(DATA_FILE):
         return pd.read_csv(DATA_FILE)
-    return pd.DataFrame(columns=["id","date","employee","department","message","sentiment","topic"])
+    else:
+        return pd.DataFrame(columns=["id", "date", "employee", "department", "message", "sentiment", "topic"])
 
 def save_data(df):
     if "id" in df.columns:
@@ -43,246 +49,283 @@ def save_data(df):
     df.to_csv(DATA_FILE, index=False)
 
 def normalize_sentiment(val):
-    if val is None or pd.isna(val): return "Neutral"
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return "Neutral"
     t = str(val).strip().lower()
-    if "frustrat" in t: return "Frustrated"
-    if t.startswith("neg") or "bad" in t or "error" in t: return "Negative"
-    if t.startswith("pos") or "good" in t or "great" in t or "happy" in t: return "Positive"
+    if "frustrat" in t:
+        return "Frustrated"
+    if t.startswith("neg") or "bad" in t or "error" in t:
+        return "Negative"
+    if t.startswith("pos") or "good" in t or "great" in t or "happy" in t:
+        return "Positive"
+    if "neutral" in t:
+        return "Neutral"
     return "Neutral"
 
 def local_sentiment(text):
     t = (text or "").lower()
-    if any(w in t for w in ["angry","frustrated","upset","annoyed","sick of","ridiculous","tired of"]): return "Frustrated"
-    if any(w in t for w in ["cannot","not working","slow","error","bad","problem","fail","broken"]): return "Negative"
-    if any(w in t for w in ["thank","thanks","good","great","appreciate","helpful","love","happy","awesome"]): return "Positive"
+    if any(w in t for w in ["angry", "frustrated", "upset", "annoyed", "sick of", "ridiculous", "tired of"]):
+        return "Frustrated"
+    if any(w in t for w in ["cannot", "not working", "slow", "error", "bad", "problem", "fail", "broken"]):
+        return "Negative"
+    if any(w in t for w in ["thank", "thanks", "good", "great", "appreciate", "helpful", "love", "happy", "awesome"]):
+        return "Positive"
     return "Neutral"
 
 def local_topic(text):
     t = (text or "").lower()
-    if "workload" in t or "busy" in t: return "Workload"
-    if "manager" in t or "support" in t: return "Management Support"
-    if "office" in t or "environment" in t or "remote" in t: return "Work Environment"
-    if "communication" in t or "meeting" in t: return "Communication"
-    if "career" in t or "training" in t or "growth" in t: return "Growth"
+    if "workload" in t or "busy" in t:
+        return "Workload"
+    if "manager" in t or "support" in t:
+        return "Management Support"
+    if "office" in t or "environment" in t:
+        return "Work Environment"
+    if "communication" in t or "meeting" in t:
+        return "Communication"
+    if "career" in t or "training" in t or "growth" in t:
+        return "Growth"
     return "Others"
 
-def classify_text_with_ai_or_local(text):
-    if client is None or not text.strip():
-        return local_sentiment(text), local_topic(text)
-    try:
-        prompt = f"""
-        Classify one employee feedback message.
-        Return ONLY one line: sentiment,topic
-        Sentiment ∈ [Positive, Negative, Neutral, Frustrated]
-        Topic ∈ [Workload, Management Support, Work Environment, Communication, Growth, Others]
-        Message: {text.strip()}
-        """
-        resp = client.chat.completions.create(model="gpt-4o-mini",
-                                              messages=[{"role":"user","content":prompt}])
-        out = resp.choices[0].message.content.strip()
-        parts = [p.strip() for p in out.split(",")]
-        s = normalize_sentiment(parts[0]) if parts else local_sentiment(text)
-        t = parts[1] if len(parts)>1 else local_topic(text)
-        return s,t
-    except Exception:
-        return local_sentiment(text), local_topic(text)
+def classify_text_batch_with_ai(df):
+    """Send one compact API call to classify all uploaded messages."""
+    msgs = "\n".join(
+        [f"{i+1}. {row['message']}" for i, row in df.iterrows() if str(row.get('message', '')).strip()]
+    )
+    prompt = f"""
+    You are classifying multiple employee feedback messages.
+
+    For each line below, output one line in CSV format:
+    sentiment,topic
+    where:
+    - Sentiment ∈ [Positive, Negative, Neutral, Frustrated]
+    - Topic ∈ [Workload, Management Support, Work Environment, Communication, Growth, Others]
+
+    Feedback messages:
+    {msgs}
+    """
+    resp = client.chat.completions.create(model="gpt-4o-mini",
+                                          messages=[{"role": "user", "content": prompt}])
+    text = resp.choices[0].message.content.strip()
+    rows = [r.strip() for r in text.split("\n") if r.strip()]
+    sentiments, topics = [], []
+    for line in rows:
+        parts = [p.strip() for p in line.split(",")]
+        sentiments.append(normalize_sentiment(parts[0]) if parts else "Neutral")
+        topics.append(parts[1] if len(parts) > 1 else "Others")
+    while len(sentiments) < len(df):
+        sentiments.append("Neutral"); topics.append("Others")
+    return sentiments[:len(df)], topics[:len(df)]
 
 def update_sentiment_trend_per_run(df):
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     counts = df["sentiment"].value_counts().to_dict()
     total = sum(counts.values()) or 1
-    score = sum(SENTIMENT_WEIGHTS.get(k,0)*v for k,v in counts.items())/total
-    row = {"timestamp":ts,"avg_score":score,**{s:counts.get(s,0) for s in ALLOWED_SENTIMENTS}}
+    weighted_sum = sum(SENTIMENT_WEIGHTS.get(k, 0) * v for k, v in counts.items())
+    avg_score = weighted_sum / total
+    row = {"timestamp": timestamp, "avg_score": avg_score, **{s: counts.get(s, 0) for s in ALLOWED_SENTIMENTS}}
     if os.path.exists(TREND_FILE):
         tdf = pd.read_csv(TREND_FILE)
-        tdf = pd.concat([tdf,pd.DataFrame([row])],ignore_index=True)
+        tdf = pd.concat([tdf, pd.DataFrame([row])], ignore_index=True)
     else:
         tdf = pd.DataFrame([row])
-    tdf.to_csv(TREND_FILE,index=False)
+    tdf.to_csv(TREND_FILE, index=False)
 
-def append_questions_history(qs):
-    new_row = {"timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-               "questions": " | ".join(qs)}
-    if os.path.exists(QUESTIONS_FILE):
-        hist = pd.read_csv(QUESTIONS_FILE)
-        hist = pd.concat([hist, pd.DataFrame([new_row])], ignore_index=True)
-    else:
-        hist = pd.DataFrame([new_row])
-    hist.to_csv(QUESTIONS_FILE, index=False)
-
-def load_question_history():
-    if not os.path.exists(QUESTIONS_FILE):
-        return pd.DataFrame(columns=["timestamp","questions"])
-    return pd.read_csv(QUESTIONS_FILE)
-
-# ---------- SESSION STATE ----------
-if "df" not in st.session_state: st.session_state.df = load_data()
-if "ai_summary" not in st.session_state:
-    st.session_state.ai_summary = open(SUMMARY_FILE).read().strip() if os.path.exists(SUMMARY_FILE) else None
-if "questions" not in st.session_state:
-    st.session_state.questions = [
+def load_latest_questions():
+    default_q = [
         "How do you feel about your workload recently?",
         "How supported do you feel by your manager or team?",
-        "Any suggestions to improve your work environment?"
+        "Any suggestions to improve your work environment?",
     ]
+    if not os.path.exists(QUESTIONS_FILE): return default_q
+    try:
+        df = pd.read_csv(QUESTIONS_FILE)
+        if df.empty: return default_q
+        last = df.iloc[-1]["questions"]
+        return [q.strip() for q in str(last).split("|") if q.strip()]
+    except Exception:
+        return default_q
+
+def append_questions_history(questions):
+    row = {"timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+           "questions": " | ".join(questions)}
+    if os.path.exists(QUESTIONS_FILE):
+        df = pd.read_csv(QUESTIONS_FILE)
+        df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+    else:
+        df = pd.DataFrame([row])
+    df.to_csv(QUESTIONS_FILE, index=False)
+
+# ---------- STATE ----------
+if "df" not in st.session_state: st.session_state.df = load_data_cached()
+if "questions" not in st.session_state: st.session_state.questions = load_latest_questions()
+if "ai_summary" not in st.session_state:
+    st.session_state.ai_summary = open(SUMMARY_FILE).read().strip() if os.path.exists(SUMMARY_FILE) else None
 df = st.session_state.df
+
+# ---------- QUESTION GENERATOR ----------
+st.subheader("🧩 Generate Next Questionnaire")
+if client and st.button("Generate next questionnaire"):
+    sentiment_summary = df["sentiment"].value_counts().to_dict() if not df.empty else {}
+    top_topics = df["topic"].value_counts().nlargest(3).index.tolist() if not df.empty else []
+    sample_texts = "\n".join(df["message"].tail(10).tolist()) if not df.empty else "No feedback yet."
+    prompt = f"""
+    You are an HR assistant creating balanced employee engagement questionnaires.
+
+    Based on these recent feedback comments:
+    {sample_texts}
+
+    Sentiment mix: {sentiment_summary}.
+    Top themes: {', '.join(top_topics)}.
+
+    Generate 5 open-ended questions (under 20 words total):
+    - 2 exploring positive experiences
+    - 2 addressing challenges or frustrations
+    - 1 neutral morale-reflection question
+    Number them 1–5.
+    """
+    resp = client.chat.completions.create(model="gpt-4o-mini",
+                                          messages=[{"role": "user", "content": prompt}])
+    q_text = resp.choices[0].message.content
+    new_qs = [line[line.find(".")+1:].strip()
+              for line in q_text.splitlines()
+              if line.strip() and line.strip()[0].isdigit()]
+    if new_qs:
+        st.session_state.questions = new_qs
+        append_questions_history(new_qs)
+        st.success("✅ New questionnaire generated!")
+        st.rerun()
 
 # ---------- LAYOUT ----------
 st.markdown("---")
-left, right = st.columns([1.3,1])
+left, right = st.columns([1.2, 1])
 
-# ---------- LEFT COLUMN : FEEDBACK FORM ----------
+# ---------- LEFT: FORM ----------
 with left:
     st.subheader("📝 Employee Feedback Form")
     with st.form("form", clear_on_submit=True):
         name = st.text_input("Employee Name (optional)")
         dept = st.selectbox("Division / Department", DIVISIONS)
-        answers = [st.text_area(q, height=70) for q in st.session_state.questions]
-        submitted = st.form_submit_button("Submit Feedback")
-        if submitted:
+        answers = [st.text_area(q, height=80) for q in st.session_state.questions]
+        if st.form_submit_button("Submit Feedback"):
             msg = " | ".join([a for a in answers if a.strip()])
             if msg:
-                with st.spinner("Analyzing feedback..."):
-                    s,t = classify_text_with_ai_or_local(msg)
+                with st.spinner("🔍 Analyzing feedback..."):
+                    sentiment, topic = classify_text_batch_with_ai(pd.DataFrame([{"message": msg}]))
+                    sentiment, topic = sentiment[0], topic[0]
                 new_row = {
-                    "id": int(df["id"].max())+1 if len(df) else 1,
+                    "id": int(df["id"].max()) + 1 if len(df) else 1,
                     "date": datetime.now().strftime("%Y-%m-%d"),
                     "employee": name, "department": dept,
-                    "message": msg, "sentiment": s, "topic": t
+                    "message": msg, "sentiment": sentiment, "topic": topic,
                 }
-                st.session_state.df = pd.concat([st.session_state.df,pd.DataFrame([new_row])],ignore_index=True)
+                st.session_state.df = pd.concat([st.session_state.df, pd.DataFrame([new_row])], ignore_index=True)
                 save_data(st.session_state.df)
-                st.success(f"✅ Saved — Sentiment: {s}, Topic: {t}")
+                st.success(f"✅ Saved — Sentiment: {sentiment}, Topic: {topic}")
                 st.rerun()
-            else:
-                st.warning("Please fill in at least one question.")
 
-# ---------- RIGHT COLUMN : DATA MANAGEMENT ----------
+# ---------- RIGHT: MANAGEMENT ----------
 with right:
-    st.subheader("📂 Data Management")
+    st.subheader("📜 Questionnaire & Data Management")
+    if os.path.exists(QUESTIONS_FILE):
+        hist = pd.read_csv(QUESTIONS_FILE)
+        if not hist.empty:
+            st.dataframe(hist.tail(5).iloc[::-1], use_container_width=True, hide_index=True)
 
-    # Upload CSV
-    uploaded = st.file_uploader("Upload CSV (id,date,employee,department,message)", type=["csv"])
+    st.download_button("⬇️ Download Current Questions",
+                       data="\n".join(st.session_state.questions),
+                       file_name="current_questions.csv", mime="text/csv")
+
+    if not df.empty:
+        st.download_button("⬇️ Download All Feedback",
+                           data=df.to_csv(index=False).encode("utf-8"),
+                           file_name="employee_feedback.csv", mime="text/csv")
+
+    uploaded = st.file_uploader("📤 Upload CSV (id,date,employee,department,message)", type=["csv"])
     if uploaded:
-        try:
-            new_df = pd.read_csv(uploaded)
-            new_df["message"] = new_df["message"].fillna("").astype(str)
-            if client and not new_df.empty:
-                messages = "\n".join([f"{i+1}. {m}" for i,m in enumerate(new_df["message"])])
-                prompt = f"""
-                Classify the following feedback messages.
-                Return only CSV: row_id,sentiment,topic
-                {messages}
-                """
-                resp = client.chat.completions.create(model="gpt-4o-mini",
-                                                      messages=[{"role":"user","content":prompt}])
-                out = resp.choices[0].message.content.strip()
-                csv_lines = [l for l in out.splitlines() if re.match(r"^\d+,",l)]
-                if not any("sentiment" in l.lower() for l in csv_lines[:2]):
-                    csv_lines.insert(0,"row_id,sentiment,topic")
-                cleaned="\n".join(csv_lines)
-                try: result = pd.read_csv(io.StringIO(cleaned))
-                except: result=pd.DataFrame(csv.reader(io.StringIO(cleaned)))
-                new_df["sentiment"]=result.get("sentiment","Neutral").apply(normalize_sentiment)
-                new_df["topic"]=result.get("topic","Others")
-            else:
-                new_df["sentiment"],new_df["topic"]=zip(*new_df["message"].apply(classify_text_with_ai_or_local))
-            st.session_state.df=pd.concat([st.session_state.df,new_df],ignore_index=True)
-            save_data(st.session_state.df)
-            st.success(f"✅ Uploaded & classified {len(new_df)} entries.")
-            st.rerun()
-        except Exception as e:
-            st.error(f"⚠️ Upload failed: {e}")
+        new_df = pd.read_csv(uploaded)
+        with st.spinner("Classifying uploaded feedback..."):
+            sentiments, topics = classify_text_batch_with_ai(new_df)
+        new_df["sentiment"], new_df["topic"] = sentiments, topics
+        st.session_state.df = pd.concat([st.session_state.df, new_df], ignore_index=True)
+        save_data(st.session_state.df)
+        st.success(f"✅ Classified {len(new_df)} uploaded entries.")
+        st.rerun()
 
-    # Generate Demo CSV
     if st.button("🧪 Generate Demo CSV"):
-        if client:
-            try:
-                prompt=f"""
-                Generate 10 rows of employee feedback data.
-                Columns: id,date,employee,department,message
-                department ∈ [FSC, SSO, Crisis Shelter, Transitional Shelter, Care Staff, Welfare Officer]
-                message = combined answers to: {"; ".join(st.session_state.questions)}
-                """
-                resp=client.chat.completions.create(model="gpt-4o-mini",
-                                                    messages=[{"role":"user","content":prompt}])
-                raw=resp.choices[0].message.content.strip()
-                cleaned=re.sub(r"```.*?```","",raw,flags=re.S).strip()
-                if not cleaned.lower().startswith("id,"):
-                    cleaned="id,date,employee,department,message\n"+cleaned
-                try: demo=pd.read_csv(io.StringIO(cleaned))
-                except:
-                    reader=csv.reader(io.StringIO(cleaned))
-                    rows=[r for r in reader if len(r)>=5]; demo=pd.DataFrame(rows[1:],columns=rows[0])
-                st.download_button("⬇️ Download Demo CSV",
-                                   data=demo.to_csv(index=False).encode("utf-8"),
-                                   file_name="demo_feedback.csv",
-                                   mime="text/csv")
-                st.success("✅ Demo CSV ready for download!")
-            except Exception as e:
-                st.error(f"⚠️ Demo generation failed: {e}")
-        else:
-            st.warning("OpenAI key not found.")
-
-    # Show Question History
-    hist_df = load_question_history()
-    if not hist_df.empty:
-        st.markdown("### 🕓 Recent Questionnaires")
-        st.dataframe(hist_df.tail(3).iloc[::-1], use_container_width=True, hide_index=True)
+        demo = [{
+            "id": i+1,
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "employee": random.choice(["John", "Maria", "Priya", "Wei Ming"]),
+            "department": random.choice(DIVISIONS[1:]),
+            "message": f"Feedback: {random.choice(st.session_state.questions)}"
+        } for i in range(5)]  # only 5 rows now
+        demo_df = pd.DataFrame(demo)
+        st.download_button("⬇️ Download Demo Feedback CSV",
+                           data=demo_df.to_csv(index=False).encode("utf-8"),
+                           file_name="demo_feedback.csv", mime="text/csv")
 
 # ---------- DASHBOARD ----------
 st.markdown("---")
 st.subheader("📊 Sentiment Dashboard")
+
 df_live = st.session_state.df.copy()
-df_live["sentiment"]=df_live["sentiment"].apply(normalize_sentiment)
-df_live=df_live[df_live["sentiment"].isin(ALLOWED_SENTIMENTS)]
+df_live["sentiment"] = df_live["sentiment"].apply(normalize_sentiment)
+df_live = df_live[df_live["sentiment"].isin(ALLOWED_SENTIMENTS)]
 
 if not df_live.empty:
-    sent_count=df_live["sentiment"].value_counts().reindex(ALLOWED_SENTIMENTS,fill_value=0).reset_index()
-    sent_count.columns=["sentiment","count"]
-    st.plotly_chart(px.bar(sent_count,x="sentiment",y="count",color="sentiment",
-                           color_discrete_map=SENTIMENT_COLORS,
-                           title="Sentiment Distribution"),use_container_width=True)
-    dept=df_live.groupby(["department","sentiment"]).size().reset_index(name="count")
-    st.plotly_chart(px.bar(dept,x="department",y="count",color="sentiment",
-                           barmode="group",color_discrete_map=SENTIMENT_COLORS,
-                           title="Sentiment by Division"),use_container_width=True)
+    sent_count = df_live["sentiment"].value_counts().reindex(ALLOWED_SENTIMENTS, fill_value=0).reset_index()
+    sent_count.columns = ["sentiment", "count"]
+    st.plotly_chart(px.bar(sent_count, x="sentiment", y="count",
+                           color="sentiment", color_discrete_map=SENTIMENT_COLORS,
+                           title="Sentiment Distribution"), use_container_width=True)
+
+    if "department" in df_live.columns:
+        st.subheader("🏢 Sentiment by Division")
+        dept_summary = df_live.groupby(["department", "sentiment"]).size().reset_index(name="count")
+        st.plotly_chart(px.bar(dept_summary, x="department", y="count", color="sentiment",
+                               barmode="group", color_discrete_map=SENTIMENT_COLORS,
+                               title="Sentiment by Division"), use_container_width=True)
 
 # ---------- RECENT FEEDBACK ----------
 st.markdown("---")
 st.subheader("🗒️ Last 10 Feedback Entries")
 if not df.empty:
-    st.dataframe(df.sort_values("date",ascending=False).tail(10)[
-        ["date","employee","department","message","sentiment","topic"]],
-        use_container_width=True,hide_index=True)
+    st.dataframe(df.sort_values("date", ascending=False).tail(10)[
+        ["date", "employee", "department", "message", "sentiment", "topic"]
+    ], use_container_width=True, hide_index=True)
 
 # ---------- EXECUTIVE SUMMARY ----------
 st.markdown("---")
-st.subheader("🧠 Executive Summary")
+st.subheader("🧠 AI Insights Summary")
 
-if client and st.button("Generate Executive Summary"):
-    joined="\n".join(df["message"]) if not df.empty else "(no feedback)"
-    trend=pd.read_csv(TREND_FILE).tail(5).to_dict(orient="records") if os.path.exists(TREND_FILE) else []
-    prompt=f"""
+if client and st.button("Generate executive summary"):
+    joined = "\n".join(df["message"].tolist()) if not df.empty else "(no feedback)"
+    trend_snippet = []
+    if os.path.exists(TREND_FILE):
+        tdf = pd.read_csv(TREND_FILE).tail(5)
+        trend_snippet = tdf.to_dict(orient="records")
+    prompt = f"""
     Summarize HR insights:
-    1) Top morale issues
-    2) Positive highlights
-    3) Mood shift trends
+    1) Top 3 morale issues
+    2) One positive highlight
+    3) Mood shift trends (based on morale index)
     4) Divisions needing attention
-    Trend data: {trend}
+    Trend snapshots: {trend_snippet}
+    Keep under 250 words.
     Feedback:
     {joined}
     """
-    with st.spinner("Generating summary..."):
-        resp=client.chat.completions.create(model="gpt-4o-mini",
-                                            messages=[{"role":"user","content":prompt}])
-        summary=resp.choices[0].message.content.strip()
-        st.session_state.ai_summary=summary
-        with open(SUMMARY_FILE,"w") as f: f.write(summary)
+    with st.spinner("Generating executive summary..."):
+        resp = client.chat.completions.create(model="gpt-4o-mini",
+                                              messages=[{"role": "user", "content": prompt}])
+        summary = resp.choices[0].message.content.strip()
+        st.session_state.ai_summary = summary
+        with open(SUMMARY_FILE, "w") as f:
+            f.write(summary)
         update_sentiment_trend_per_run(st.session_state.df)
         st.success("✅ Summary generated & trend updated.")
         st.rerun()
 
 if st.session_state.ai_summary:
-    st.markdown("### 🧾 Latest Summary:")
+    st.markdown("### 🧾 Latest Executive Summary:")
     st.write(st.session_state.ai_summary)
