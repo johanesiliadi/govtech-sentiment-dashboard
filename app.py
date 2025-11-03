@@ -46,7 +46,7 @@ def load_data():
         df = pd.read_csv("feedback.csv")
         return clean_df_sentiment(df)
     else:
-        # Default initial data so dashboard & summary show immediately
+        # Default initial data
         data = [
             [1, "2025-11-01", "John Tan", "FSC", "System keeps freezing when updating client info", "Negative", "Workload"],
             [2, "2025-11-01", "Maria Lim", "SSO", "Appreciate the flexible schedule recently", "Positive", "Work Environment"],
@@ -62,7 +62,7 @@ def save_data(df):
     df = clean_df_sentiment(df)
     df.to_csv("feedback.csv", index=False)
 
-# ---------- SESSION STATE RESTORE ----------
+# ---------- SESSION STATE ----------
 if "df" not in st.session_state:
     st.session_state.df = load_data()
 
@@ -73,7 +73,7 @@ if "ai_summary" not in st.session_state:
     else:
         st.session_state.ai_summary = None
 
-# ---------- LOAD LATEST QUESTIONS ----------
+# ---------- LOAD QUESTIONS ----------
 default_questions = [
     "How do you feel about your workload recently?",
     "How supported do you feel by your manager or team?",
@@ -122,7 +122,6 @@ def local_topic(text: str) -> str:
 
 # ---------- ADAPTIVE QUESTION GENERATOR ----------
 st.subheader("🧩 Generate Next Questionnaire")
-
 if client and st.button("Generate next questionnaire"):
     sentiment_summary = df["sentiment"].value_counts().to_dict()
     top_topics = df["topic"].value_counts().nlargest(3).index.tolist()
@@ -140,7 +139,6 @@ if client and st.button("Generate next questionnaire"):
     Include one positive reflection question.
     Number them 1–5.
     """
-
     try:
         resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}])
         q_text = resp.choices[0].message.content
@@ -228,7 +226,6 @@ with right_col:
 
     st.markdown("### 📤 Upload Bulk Feedback CSV")
     uploaded = st.file_uploader("Upload CSV (id,date,employee,department,message)", type=["csv"])
-
     if uploaded is not None:
         try:
             new_df = pd.read_csv(uploaded)
@@ -265,13 +262,11 @@ with right_col:
         except Exception as e:
             st.error(f"⚠️ Error reading CSV: {e}")
 
-    # ---------- DEMO CSV GENERATOR ----------
     st.markdown("### 🧪 Demo CSV Generator")
     if st.button("Generate Demo CSV"):
         demo_employees = ["John Tan", "Maria Lim", "Ahmad Yusof", "Priya Menon", "Wei Ming"]
         demo_depts = ["FSC", "SSO", "Crisis Shelter", "Transitional Shelter", "Care Staff", "Welfare Officer"]
         demo_responses = []
-
         for i in range(10):
             emp = random.choice(demo_employees)
             dept = random.choice(demo_depts)
@@ -293,7 +288,6 @@ with right_col:
             })
 
         demo_df = pd.DataFrame(demo_responses)
-        demo_df.to_csv("demo_feedback.csv", index=False)
         csv_data = demo_df.to_csv(index=False).encode("utf-8")
         st.success("✅ Demo CSV file generated successfully.")
         st.download_button("⬇️ Download Demo Feedback CSV", data=csv_data, file_name="demo_feedback.csv", mime="text/csv")
@@ -305,9 +299,11 @@ st.subheader("📊 Sentiment Dashboard")
 df_chart = df[df["sentiment"].isin(ALLOWED_SENTIMENTS)].copy()
 if not df_chart.empty:
     sentiment_color_map = {"Positive": "#21bf73", "Negative": "#ff9f43", "Frustrated": "#ee5253", "Neutral": "#8395a7"}
-    fig = px.bar(df_chart["sentiment"].value_counts().reset_index(), x="index", y="sentiment", color="index",
-                 color_discrete_map=sentiment_color_map, labels={"index": "Sentiment", "sentiment": "Count"},
-                 title="Sentiment Distribution")
+
+    sent_count = df_chart["sentiment"].value_counts().reset_index()
+    sent_count.columns = ["sentiment", "count"]
+    fig = px.bar(sent_count, x="sentiment", y="count", color="sentiment",
+                 color_discrete_map=sentiment_color_map, title="Sentiment Distribution")
     st.plotly_chart(fig, use_container_width=True)
 
     dept_summary = df_chart.groupby(["department", "sentiment"]).size().reset_index(name="count")
