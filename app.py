@@ -298,15 +298,18 @@ with right:
             try:
                 prompt = f"""
                 You are simulating 10 employee feedback submissions for a morale survey.
-                For each simulated employee, answer these {len(st.session_state.questions)} questions:
 
+                For each simulated employee, answer all {len(st.session_state.questions)} of these questions:
                 {"; ".join(st.session_state.questions)}
 
-                Include variety across departments: FSC, SSO, Crisis Shelter, Transitional Shelter, Care Staff, Welfare Officer.
-                Return as a CSV with columns:
+                Each row represents one employee.
+                Return results ONLY as a CSV with columns:
                 id,date,employee,department,message
-                - 'message' should combine all answers from that employee separated by ' | '
-                - Do NOT include sentiment or topic columns.
+                - date should be today
+                - employee names can be random
+                - department ∈ [FSC, SSO, Crisis Shelter, Transitional Shelter, Care Staff, Welfare Officer]
+                - message should combine all answers from that employee, separated by " | "
+                Do not include sentiment or topic columns, and do not explain anything.
                 """
 
                 with st.spinner("Generating realistic demo responses..."):
@@ -314,12 +317,34 @@ with right:
                         model="gpt-4o-mini",
                         messages=[{"role": "user", "content": prompt}]
                     )
+                raw_output = resp.choices[0].message.content.strip()
 
-                csv_data = resp.choices[0].message.content.strip()
+                import io, csv, re
+                # 🔧 Clean output – remove any commentary or Markdown
+                lines = [l for l in raw_output.splitlines() if re.search(r"\d", l) and "," in l]
+                # Ensure header line
+                if not any("id" in l.lower() for l in lines[:2]):
+                    lines.insert(0, "id,date,employee,department,message")
+                cleaned_csv = "\n".join(lines)
 
-                # Save cleaned demo file
-                import io
-                demo_df = pd.read_csv(io.StringIO(csv_data))
+                # Try to parse robustly
+                try:
+                    demo_df = pd.read_csv(io.StringIO(cleaned_csv))
+                except Exception:
+                    # fallback: use csv.reader to handle weird quoting
+                    reader = csv.reader(io.StringIO(cleaned_csv))
+                    rows = list(reader)
+                    header = rows[0]
+                    data = rows[1:]
+                    demo_df = pd.DataFrame(data, columns=header)
+
+                # ✅ Guarantee correct columns
+                required_cols = ["id", "date", "employee", "department", "message"]
+                for col in required_cols:
+                    if col not in demo_df.columns:
+                        demo_df[col] = ""
+                demo_df = demo_df[required_cols]
+
                 st.download_button(
                     "⬇️ Download AI-Generated Demo CSV",
                     data=demo_df.to_csv(index=False).encode("utf-8"),
@@ -327,6 +352,7 @@ with right:
                     mime="text/csv"
                 )
                 st.success("✅ Demo CSV generated successfully!")
+
             except Exception as e:
                 st.error(f"⚠️ AI Demo generation failed: {e}")
         else:
