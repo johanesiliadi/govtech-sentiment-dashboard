@@ -225,7 +225,7 @@ with right:
         st.success(f"✅ Classified {len(new_df)} uploaded entries.")
         st.rerun()
 
-    # ----- AI-POWERED DEMO CSV GENERATOR -----
+        # ----- AI-POWERED DEMO CSV GENERATOR -----
     if client and st.button("🧪 Generate Demo CSV"):
         prompt = f"""
         Generate 5 realistic employee feedback entries in CSV format with the following columns:
@@ -236,15 +236,27 @@ with right:
           {st.session_state.questions}
         - Responses should be short, varied, and sound like real people.
         - Do not include sentiment or topic columns.
+        - Output ONLY the CSV, no explanations or text above or below it.
         """
-        with st.spinner("Generating demo feedback with AI..."):
-            resp = client.chat.completions.create(model="gpt-4o-mini",
-                                                  messages=[{"role": "user", "content": prompt}])
+
+        with st.spinner("Generating demo feedback ..."):
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}]
+            )
             csv_text = resp.choices[0].message.content.strip()
+
+            # --- Clean up extra words if model added polite intro text ---
+            import re
+            csv_match = re.search(r"id\s*,\s*date\s*,\s*employee\s*,\s*department\s*,\s*message[\s\S]+", csv_text, re.IGNORECASE)
+            if csv_match:
+                csv_text = csv_match.group(0).strip()
+
         st.download_button("⬇️ Download Demo Feedback CSV",
                            data=csv_text.encode("utf-8"),
                            file_name="demo_feedback.csv",
                            mime="text/csv")
+
 
 # ---------- DASHBOARD ----------
 st.markdown("---")
