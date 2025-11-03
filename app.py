@@ -62,8 +62,14 @@ def normalize_sentiment(val):
     return "Neutral"
 
 def classify_text_batch_with_ai(df):
+    # Keep only rows that actually have a text message
+    df = df[df["message"].notna()].copy()
+    df["message"] = df["message"].astype(str)
+    if df.empty:
+        return ["Neutral"], ["Others"]
+
     msgs = "\n".join(
-        [f"{i+1}. {row['message']}" for i, row in df.iterrows() if str(row.get('message', '')).strip()]
+        [f"{i+1}. {m}" for i, m in enumerate(df["message"].tolist()) if str(m).strip()]
     )
     prompt = f"""
     You are classifying multiple employee feedback messages.
