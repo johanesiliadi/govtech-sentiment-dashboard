@@ -1,5 +1,4 @@
 import os
-import random
 from datetime import datetime
 import pandas as pd
 import plotly.express as px
@@ -45,13 +44,13 @@ def load_data_cached():
     return pd.DataFrame(columns=["id", "date", "employee", "department", "message", "sentiment", "topic"])
 
 def save_data(df):
-    """Save updated feedback back to CSV."""
+    """Save updated feedback to CSV."""
     if "id" in df.columns:
         df.drop_duplicates(subset="id", keep="last", inplace=True)
     df.to_csv(DATA_FILE, index=False)
 
 def normalize_sentiment(val):
-    """Normalize messy text labels into fixed sentiment categories."""
+    """Normalize various sentiment strings into standard categories."""
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return "Neutral"
     t = str(val).strip().lower()
@@ -66,7 +65,7 @@ def normalize_sentiment(val):
     return "Neutral"
 
 def local_sentiment(text):
-    """Simple rule-based backup for sentiment classification."""
+    """Simple fallback sentiment detection."""
     t = (text or "").lower()
     if any(w in t for w in ["angry", "frustrated", "upset", "annoyed", "sick of", "ridiculous", "tired of"]):
         return "Frustrated"
@@ -77,7 +76,7 @@ def local_sentiment(text):
     return "Neutral"
 
 def local_topic(text):
-    """Basic topic classifier for fallback use."""
+    """Rule-based fallback for topic classification."""
     t = (text or "").lower()
     if "workload" in t or "busy" in t:
         return "Workload"
@@ -92,8 +91,8 @@ def local_topic(text):
     return "Others"
 
 def classify_text_with_ai_or_local(text):
-    """Use OpenAI if available, else rule-based classification."""
-    if client is None or not text.strip():
+    """Use AI if available, otherwise fallback to local logic."""
+    if client is None or not str(text).strip():
         return local_sentiment(text), local_topic(text)
     try:
         prompt = f"""
@@ -116,22 +115,18 @@ def classify_text_with_ai_or_local(text):
         return local_sentiment(text), local_topic(text)
 
 def update_sentiment_trend_per_run(df):
-    """Update morale trend file after each executive summary."""
+    """Compute morale index and save sentiment trends."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     counts = df["sentiment"].value_counts().to_dict()
     total = sum(counts.values()) or 1
     weighted_sum = sum(SENTIMENT_WEIGHTS.get(k, 0) * v for k, v in counts.items())
     avg_score = weighted_sum / total
     row = {"timestamp": timestamp, "avg_score": avg_score, **{s: counts.get(s, 0) for s in ALLOWED_SENTIMENTS}}
-    if os.path.exists(TREND_FILE):
-        tdf = pd.read_csv(TREND_FILE)
-        tdf = pd.concat([tdf, pd.DataFrame([row])], ignore_index=True)
-    else:
-        tdf = pd.DataFrame([row])
+    tdf = pd.concat([pd.read_csv(TREND_FILE), pd.DataFrame([row])], ignore_index=True) if os.path.exists(TREND_FILE) else pd.DataFrame([row])
     tdf.to_csv(TREND_FILE, index=False)
 
 def load_latest_questions():
-    """Load the most recent questionnaire."""
+    """Load last questionnaire or fallback to default."""
     default_q = [
         "How do you feel about your workload recently?",
         "How supported do you feel by your manager or team?",
@@ -149,14 +144,10 @@ def load_latest_questions():
         return default_q
 
 def append_questions_history(questions):
-    """Save a new questionnaire set to history."""
+    """Save new questionnaire to CSV history."""
     row = {"timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
            "questions": " | ".join(questions)}
-    if os.path.exists(QUESTIONS_FILE):
-        df = pd.read_csv(QUESTIONS_FILE)
-        df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
-    else:
-        df = pd.DataFrame([row])
+    df = pd.concat([pd.read_csv(QUESTIONS_FILE), pd.DataFrame([row])], ignore_index=True) if os.path.exists(QUESTIONS_FILE) else pd.DataFrame([row])
     df.to_csv(QUESTIONS_FILE, index=False)
 
 # ---------- Session state ----------
@@ -168,7 +159,7 @@ if "ai_summary" not in st.session_state:
     st.session_state.ai_summary = open(SUMMARY_FILE).read().strip() if os.path.exists(SUMMARY_FILE) else None
 df = st.session_state.df
 
-# ---------- Questionnaire Generator ----------
+# ---------- Questionnaire generator ----------
 st.subheader("🧩 Generate Next Questionnaire")
 if client and st.button("Generate next questionnaire"):
     sentiment_summary = df["sentiment"].value_counts().to_dict() if not df.empty else {}
@@ -176,17 +167,16 @@ if client and st.button("Generate next questionnaire"):
     sample_texts = "\n".join(df["message"].tail(10).tolist()) if not df.empty else "No feedback yet."
     prompt = f"""
     You are an HR assistant creating balanced employee engagement questionnaires.
-    Based on recent feedback and trends below:
-    Feedback samples:
+    Based on these feedback trends:
     {sample_texts}
 
     Sentiment mix: {sentiment_summary}
     Top themes: {', '.join(top_topics)}
 
-    Generate 5 short open-ended questions (under 20 words each):
+    Generate 5 short open-ended questions:
     - 2 positive/reflective
-    - 2 areas for improvement
-    - 1 neutral morale-reflection question
+    - 2 improvement-oriented
+    - 1 neutral morale question
     """
     try:
         resp = client.chat.completions.create(
@@ -194,8 +184,7 @@ if client and st.button("Generate next questionnaire"):
             messages=[{"role": "user", "content": prompt}]
         )
         q_text = resp.choices[0].message.content
-        new_qs = [line[line.find(".")+1:].strip()
-                  for line in q_text.splitlines() if line.strip() and line.strip()[0].isdigit()]
+        new_qs = [line[line.find(".")+1:].strip() for line in q_text.splitlines() if line.strip() and line.strip()[0].isdigit()]
         if new_qs:
             st.session_state.questions = new_qs
             append_questions_history(new_qs)
@@ -208,7 +197,7 @@ if client and st.button("Generate next questionnaire"):
 st.markdown("---")
 left, right = st.columns([1.2, 1])
 
-# ---------- Feedback form ----------
+# ---------- Left: Feedback Form ----------
 with left:
     st.subheader("📝 Employee Feedback Form")
     with st.form("form", clear_on_submit=True):
@@ -234,7 +223,7 @@ with left:
                 st.success(f"✅ Saved — Sentiment: {sentiment}, Topic: {topic}")
                 st.rerun()
 
-# ---------- Questionnaire & data management ----------
+# ---------- Right: Questionnaire & Data Management ----------
 with right:
     st.subheader("📜 Questionnaire & Data Management")
     if os.path.exists(QUESTIONS_FILE):
@@ -256,15 +245,16 @@ with right:
     if uploaded:
         try:
             new_df = pd.read_csv(uploaded)
+            new_df["message"] = new_df["message"].fillna("").astype(str)
             new_df["sentiment"], new_df["topic"] = zip(*new_df["message"].apply(classify_text_with_ai_or_local))
             st.session_state.df = pd.concat([st.session_state.df, new_df], ignore_index=True)
             save_data(st.session_state.df)
             st.success(f"✅ Uploaded & classified {len(new_df)} entries.")
             st.rerun()
         except Exception as e:
-            st.error(f"Upload error: {e}")
+            st.error(f"⚠️ Upload error: {e}")
 
-    # ---- AI-driven Demo CSV Generator ----
+    # ---- AI-driven Demo CSV Generator (answers all 5 questions) ----
     if st.button("🧪 Generate AI Demo CSV"):
         if client is None:
             st.warning("⚠️ OpenAI key not found – cannot auto-generate demo CSV.")
@@ -272,39 +262,37 @@ with right:
             try:
                 questions_text = "\n".join([f"{i+1}. {q}" for i, q in enumerate(st.session_state.questions)])
                 prompt = f"""
-                You are preparing sample HR feedback data for an internal demo.
-                The current questionnaire is:
+                You are preparing demo HR feedback data for an internal dashboard.
+
+                Each employee is answering this questionnaire:
                 {questions_text}
 
-                Generate 10 realistic employee feedback entries in CSV format:
+                Generate 10 realistic employee responses in CSV format:
                 employee_name,department,message
 
-                - Use natural and varied tone (some positive, some negative, some frustrated, some neutral)
-                - Use Singaporean-style names and phrasing
+                - The "message" column should combine answers for all 5 questions, separated by " | "
+                - Tone: mix of positive, negative, frustrated, and neutral
+                - Names: Singaporean-style (Siti, Wei Ming, Priya, Alex, John, Maria)
                 - Departments: FSC, SSO, Crisis Shelter, Transitional Shelter, Care Staff, Welfare Officer, Others
-                - Each message should be 1–2 sentences, conversational and short
-                - Avoid extra commentary, return only CSV lines
+                - Keep responses concise, natural, and varied
+                - Return ONLY CSV lines (no markdown or explanation)
                 """
-
-                with st.spinner("Generating realistic demo responses..."):
+                with st.spinner("Generating demo responses..."):
                     resp = client.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=[{"role": "user", "content": prompt}]
                     )
                     content = resp.choices[0].message.content.strip()
-
                 demo_df = pd.read_csv(StringIO(content), names=["employee", "department", "message"])
                 demo_df.insert(0, "id", range(1, len(demo_df)+1))
                 demo_df.insert(1, "date", datetime.now().strftime("%Y-%m-%d"))
-
                 st.download_button(
-                    "⬇️ Download AI-Generated Demo Feedback CSV",
+                    "⬇️ Download AI-Generated Demo Feedback CSV (5Q per entry)",
                     data=demo_df.to_csv(index=False).encode("utf-8"),
                     file_name="demo_feedback_ai.csv",
                     mime="text/csv"
                 )
                 st.success("✅ AI-generated demo feedback ready to download!")
-
             except Exception as e:
                 st.error(f"⚠️ Could not generate AI demo CSV: {e}")
 
@@ -329,7 +317,7 @@ if not df_live.empty:
                            barmode="group", color_discrete_map=SENTIMENT_COLORS,
                            title="Sentiment by Division"), use_container_width=True)
 
-    # Trend and morale line
+    # Trend chart
     if os.path.exists(TREND_FILE):
         try:
             trend_df = pd.read_csv(TREND_FILE)
