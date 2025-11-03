@@ -5,7 +5,6 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-# ---------- OPTIONAL OPENAI IMPORT ----------
 try:
     from openai import OpenAI
 except Exception:
@@ -62,32 +61,7 @@ def normalize_sentiment(val):
         return "Neutral"
     return "Neutral"
 
-def local_sentiment(text):
-    t = (text or "").lower()
-    if any(w in t for w in ["angry", "frustrated", "upset", "annoyed", "sick of", "ridiculous", "tired of"]):
-        return "Frustrated"
-    if any(w in t for w in ["cannot", "not working", "slow", "error", "bad", "problem", "fail", "broken"]):
-        return "Negative"
-    if any(w in t for w in ["thank", "thanks", "good", "great", "appreciate", "helpful", "love", "happy", "awesome"]):
-        return "Positive"
-    return "Neutral"
-
-def local_topic(text):
-    t = (text or "").lower()
-    if "workload" in t or "busy" in t:
-        return "Workload"
-    if "manager" in t or "support" in t:
-        return "Management Support"
-    if "office" in t or "environment" in t:
-        return "Work Environment"
-    if "communication" in t or "meeting" in t:
-        return "Communication"
-    if "career" in t or "training" in t or "growth" in t:
-        return "Growth"
-    return "Others"
-
 def classify_text_batch_with_ai(df):
-    """Send one compact API call to classify all uploaded messages."""
     msgs = "\n".join(
         [f"{i+1}. {row['message']}" for i, row in df.iterrows() if str(row.get('message', '')).strip()]
     )
@@ -251,18 +225,26 @@ with right:
         st.success(f"✅ Classified {len(new_df)} uploaded entries.")
         st.rerun()
 
-    if st.button("🧪 Generate Demo CSV"):
-        demo = [{
-            "id": i+1,
-            "date": datetime.now().strftime("%Y-%m-%d"),
-            "employee": random.choice(["John", "Maria", "Priya", "Wei Ming"]),
-            "department": random.choice(DIVISIONS[1:]),
-            "message": f"Feedback: {random.choice(st.session_state.questions)}"
-        } for i in range(5)]  # only 5 rows now
-        demo_df = pd.DataFrame(demo)
+    # ----- AI-POWERED DEMO CSV GENERATOR -----
+    if client and st.button("🧪 Generate Demo CSV"):
+        prompt = f"""
+        Generate 5 realistic employee feedback entries in CSV format with the following columns:
+        id,date,employee,department,message
+        - Use random Singaporean names for employees.
+        - Departments should be one of: {', '.join(DIVISIONS[1:])}.
+        - Each message should respond naturally to one of these questions:
+          {st.session_state.questions}
+        - Responses should be short, varied, and sound like real people.
+        - Do not include sentiment or topic columns.
+        """
+        with st.spinner("Generating demo feedback with AI..."):
+            resp = client.chat.completions.create(model="gpt-4o-mini",
+                                                  messages=[{"role": "user", "content": prompt}])
+            csv_text = resp.choices[0].message.content.strip()
         st.download_button("⬇️ Download Demo Feedback CSV",
-                           data=demo_df.to_csv(index=False).encode("utf-8"),
-                           file_name="demo_feedback.csv", mime="text/csv")
+                           data=csv_text.encode("utf-8"),
+                           file_name="demo_feedback.csv",
+                           mime="text/csv")
 
 # ---------- DASHBOARD ----------
 st.markdown("---")
