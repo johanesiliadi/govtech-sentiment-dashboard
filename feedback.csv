@@ -1,7 +1,6 @@
-id,date,message
-1,2025-10-27,"Singpass login keeps timing out when I try to access services."
-2,2025-10-27,"Thank you to the HDB officer for the quick follow-up!"
-3,2025-10-28,"Bus arrival time in the app is not accurate."
-4,2025-10-28,"My elderly parents cannot use the new QR system at the clinic."
-5,2025-10-29,"Good improvement on the government website speed."
-6,2025-10-29,"Payment page shows error after submit, very frustrating."
+id,date,employee,department,message,sentiment,topic
+1,2025-10-28,Alice Tan,Engineering,"Workload has been really heavy lately | My manager tries to help but we still get too many urgent tasks | Maybe we can plan sprints better",Frustrated,Workload
+2,2025-10-28,Ben Lim,Finance,"I feel comfortable with my current workload | The team has been very supportive | I appreciate the hybrid work flexibility",Positive,Work Environment
+3,2025-10-28,Cheryl Ong,HR,"Sometimes communication between HR and other departments could be clearer | I feel we can improve coordination on policy updates | Meetings are frequent but productive",Neutral,Communication
+4,2025-10-28,David Lee,Sales,"Targets are quite challenging this quarter | Management is supportive but deadlines are tight | Would love more training sessions on new tools",Negative,Growth
+5,2025-10-28,Evelyn Goh,Operations,"Office environment feels much better after the renovation | Workload manageable | Team morale is high this month",Positive,Work Environment
