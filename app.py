@@ -224,8 +224,7 @@ with right:
             help="Download a blank CSV with the current 5 questions as column headers.",
         )
 
-    # ---- UPLOAD FILLED QUESTIONNAIRE RESPONSES ----
-    # ---- UPLOAD FILLED QUESTIONNAIRE RESPONSES ----
+    # ---- UPLOAD FILLED QUESTIONNAIRE RESPONSES (PER-ROW, NO RE-LOOP) ----
     st.markdown("### 📤 Upload Filled Questionnaire Responses")
     uploaded_q = st.file_uploader(
         "Upload the CSV you filled (same template format: name, division, question1–5)",
@@ -233,33 +232,65 @@ with right:
         key="upload_questionnaire_csv"
     )
 
-    if uploaded_q:
-        try:
-            df_upload = pd.read_csv(uploaded_q)
-            question_cols = [col for col in df_upload.columns if col.lower().startswith("question")]
+    if uploaded_q is not None:
+        # Fingerprint the file to avoid reprocessing on rerun
+        import hashlib
+        file_bytes = uploaded_q.getvalue()
+        file_hash = hashlib.md5(file_bytes).hexdigest()
 
-            if not question_cols:
-                st.error("❌ No 'question' columns found. Please ensure your CSV follows the downloaded template format.")
-            else:
-                total_rows = len(df_upload)
-                progress = st.progress(0)
-                added = 0
+        already_done = st.session_state.get("processed_upload_hash") == file_hash
+        col_a, col_b = st.columns([1,1])
+        with col_a:
+            process_btn = st.button("Process file", disabled=already_done, help="Analyze and save rows once.")
+        with col_b:
+            force_btn = st.button("Process again anyway", help="Re-run analysis even if this file was processed.")
 
-                for idx, row in df_upload.iterrows():
-                    employee = row.get("name", "")
-                    dept = row.get("division", "")
-                    msg = " | ".join([str(row[q]) for q in question_cols if pd.notna(row[q])])
+        if already_done and not force_btn:
+            st.info("This file has already been processed. Click **Process again anyway** to re-run.")
+        elif process_btn or force_btn:
+            try:
+                df_upload = pd.read_csv(uploaded_q)
+                # detect question columns (question 1..n)
+                question_cols = [c for c in df_upload.columns if c.lower().strip().startswith("question")]
+                if not question_cols:
+                    st.error("❌ No 'question' columns found. Please use the downloaded template (name, division, question1..question5).")
+                else:
+                    total_rows = len(df_upload)
+                    progress = st.progress(0)
+                    added = 0
 
-                    if not msg.strip():
-                        continue
+                    # Safe next-id calculation
+                    try:
+                        current_max_id = pd.to_numeric(df["id"], errors="coerce").max()
+                        if pd.isna(current_max_id):
+                            current_max_id = 0
+                    except Exception:
+                        current_max_id = 0
+                    next_id_start = int(current_max_id) + 1
 
-                    # Same single-message process as manual form
-                    with st.spinner(f"Analyzing feedback {idx+1}/{total_rows}..."):
-                        sentiment, topic = classify_text_batch_with_ai(pd.DataFrame([{"message": msg}]))
-                        sentiment, topic = sentiment[0], topic[0]
+                    for idx, row in df_upload.iterrows():
+                        employee = str(row.get("name", "")).strip()
+                        dept = str(row.get("division", "")).strip()
+
+                        # Merge answers into single message " | " like the form
+                        parts = []
+                        for q in question_cols:
+                            val = row.get(q, "")
+                            if pd.notna(val) and str(val).strip():
+                                parts.append(str(val).strip())
+                        msg = " | ".join(parts)
+
+                        if not msg.strip():
+                            progress.progress(min((idx + 1) / max(total_rows,1), 1.0))
+                            continue
+
+                        # Per-row classification (same as manual form)
+                        with st.spinner(f"Analyzing {idx+1}/{total_rows}..."):
+                            sentiment, topic = classify_text_batch_with_ai(pd.DataFrame([{"message": msg}]))
+                            sentiment, topic = sentiment[0], topic[0]
 
                         new_row = {
-                            "id": int(df["id"].max()) + 1 if len(df) else 1,
+                            "id": next_id_start + added,
                             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                             "date": datetime.now().strftime("%Y-%m-%d"),
                             "employee": employee,
@@ -268,16 +299,21 @@ with right:
                             "sentiment": sentiment,
                             "topic": topic,
                         }
-                        st.session_state.df = pd.concat([st.session_state.df, pd.DataFrame([new_row])], ignore_index=True)
-                        save_data(st.session_state.df)
+                        st.session_state.df = pd.concat(
+                            [st.session_state.df, pd.DataFrame([new_row])],
+                            ignore_index=True
+                        )
                         added += 1
-                        progress.progress(min((idx + 1) / total_rows, 1.0))
+                        progress.progress(min((idx + 1) / max(total_rows,1), 1.0))
 
-                st.success(f"✅ Uploaded & analyzed {added} new feedback entries.")
-                st.rerun()
+                    if added > 0:
+                        save_data(st.session_state.df)
+                    st.session_state["processed_upload_hash"] = file_hash
+                    st.success(f"✅ Uploaded & analyzed {added} new feedback entr{'y' if added==1 else 'ies'}.")
+                    st.rerun()
 
-        except Exception as e:
-            st.error(f"Upload failed: {e}")
+            except Exception as e:
+                st.error(f"Upload failed: {e}")
 
 
 # ---------- DASHBOARD ----------
