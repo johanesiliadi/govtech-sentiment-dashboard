@@ -243,6 +243,7 @@ if client and st.button("Generate executive summaries (2 formats)"):
     if os.path.exists(TREND_FILE):
         tdf = pd.read_csv(TREND_FILE).tail(5)
         trend_snippet = tdf.to_dict(orient="records")
+    dept_list = ", ".join(df["department"].dropna().unique())
 
     prompt_narrative = f"""
     You are an HR communications expert summarizing employee morale based on feedback and recent trend data.
@@ -250,31 +251,34 @@ if client and st.button("Generate executive summaries (2 formats)"):
     The following morale trend data represents past sentiment summaries (newest last):
     {trend_snippet}
 
-    Write a short HR-style narrative summary (under 200 words) that:
+    Write a short HR-style narrative summary (under 250 words) that:
     - Describes how employee morale is shifting (based on the trend snippet above)
     - Highlights main pain points or frustrations
     - Notes positive or improving aspects
     - Suggests clear, people-oriented next actions for HR or management
     Avoid numeric counts and keep the tone empathetic, concise, and professional.
+    Focus on qualitative patterns — e.g., “morale is improving”, “frustrations are growing”.
 
     Feedback:
     {joined}
     """
 
     prompt_bullet = f"""
-    You are an HR analyst summarizing employee feedback and recent sentiment trends.
+    You are an HR data analyst summarizing employee feedback across divisions.
 
-    The following morale trend data represents past sentiment summaries (newest last):
-    {trend_snippet}
+    Write a clear, reader-friendly summary (no numbers or scores).
+    Focus on qualitative patterns — e.g., “morale is improving”, “frustrations are growing”.
 
-    Produce 5–7 bullet points that:
-    - Integrate the morale trend naturally (e.g. morale improving, morale declining, or stable)
-    - Cover top morale issues and frustrations
-    - Highlight positive aspects and improvements
-    - Suggest actionable next steps
-    - Avoid numeric counts; use natural HR phrasing.
+    Include these four parts:
+    1️⃣ Key morale issues and frustrations.
+    2️⃣ Positive highlights or improvements.
+    3️⃣ Mood shifts over time (no numeric data).
+    4️⃣ Which divisions or teams seem to need more attention.
 
-    Feedback:
+    Trend notes (for your reference): {trend_snippet}
+    Divisions: {dept_list}
+
+    Feedback data:
     {joined}
     """
 
