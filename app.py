@@ -111,7 +111,10 @@ def classify_text_batch_with_ai(df):
     - Negative      = dissatisfaction or practical complaints (“reduce meetings”, “too slow”)
     - Frustrated    = emotional fatigue, stress, burnout (“tired”, “fed up”, “overwhelmed”)
     - Neutral       = purely factual statements without emotion or intent
-    When mixed tones appear, base the result on the **overall mood** of all answers.
+    When mixed tones appear:
+    - Determine which sentiment appears most frequently or most strongly across the answers.
+    - Do not let a single disengaged or negative response dominate if most answers are neutral or constructive.
+    - Only classify as Frustrated if several answers show emotional stress, exhaustion, or disengagement.
 
     CONTEXT AWARENESS  (important!)
     - Read both question and answer together.
