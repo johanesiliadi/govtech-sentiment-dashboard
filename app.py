@@ -225,6 +225,7 @@ with right:
         )
 
     # ---- UPLOAD FILLED QUESTIONNAIRE RESPONSES ----
+    # ---- UPLOAD FILLED QUESTIONNAIRE RESPONSES ----
     st.markdown("### 📤 Upload Filled Questionnaire Responses")
     uploaded_q = st.file_uploader(
         "Upload the CSV you filled (same template format: name, division, question1–5)",
@@ -240,27 +241,39 @@ with right:
             if not question_cols:
                 st.error("❌ No 'question' columns found. Please ensure your CSV follows the downloaded template format.")
             else:
-                # Merge answers into one message field
-                df_upload["message"] = df_upload[question_cols].fillna("").apply(lambda x: " | ".join(x), axis=1)
-                df_upload.rename(columns={"name": "employee", "division": "department"}, inplace=True)
+                total_rows = len(df_upload)
+                progress = st.progress(0)
+                added = 0
 
-                # Create new entries
-                new_entries = df_upload[["employee", "department", "message"]].copy()
-                new_entries["id"] = [
-                    int(df["id"].max()) + i + 1 if len(df) else i + 1 for i in range(len(new_entries))
-                ]
-                new_entries["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                new_entries["date"] = datetime.now().strftime("%Y-%m-%d")
+                for idx, row in df_upload.iterrows():
+                    employee = row.get("name", "")
+                    dept = row.get("division", "")
+                    msg = " | ".join([str(row[q]) for q in question_cols if pd.notna(row[q])])
 
-                with st.spinner("🤖 Analyzing uploaded feedback in batch..."):
-                    sentiments, topics = classify_text_batch_with_ai(new_entries)
-                    new_entries["sentiment"] = sentiments
-                    new_entries["topic"] = topics
+                    if not msg.strip():
+                        continue
 
-                # Save and refresh
-                st.session_state.df = pd.concat([st.session_state.df, new_entries], ignore_index=True)
-                save_data(st.session_state.df)
-                st.success(f"✅ Uploaded & classified {len(new_entries)} new responses.")
+                    # Same single-message process as manual form
+                    with st.spinner(f"Analyzing feedback {idx+1}/{total_rows}..."):
+                        sentiment, topic = classify_text_batch_with_ai(pd.DataFrame([{"message": msg}]))
+                        sentiment, topic = sentiment[0], topic[0]
+
+                        new_row = {
+                            "id": int(df["id"].max()) + 1 if len(df) else 1,
+                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "date": datetime.now().strftime("%Y-%m-%d"),
+                            "employee": employee,
+                            "department": dept,
+                            "message": msg,
+                            "sentiment": sentiment,
+                            "topic": topic,
+                        }
+                        st.session_state.df = pd.concat([st.session_state.df, pd.DataFrame([new_row])], ignore_index=True)
+                        save_data(st.session_state.df)
+                        added += 1
+                        progress.progress(min((idx + 1) / total_rows, 1.0))
+
+                st.success(f"✅ Uploaded & analyzed {added} new feedback entries.")
                 st.rerun()
 
         except Exception as e:
