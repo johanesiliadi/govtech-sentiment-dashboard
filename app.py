@@ -230,13 +230,13 @@ with right:
         )
 
 
-    # ---- UPLOAD FILLED QUESTIONNAIRE RESPONSES (AUTO PROCESS ONCE) ----
+     # ---- UPLOAD FILLED QUESTIONNAIRE RESPONSES (AUTO PROCESS ONCE) ----
     st.markdown("### 📤 Upload Filled Questionnaire Responses")
 
     uploaded_q = st.file_uploader(
-        "Upload the CSV you filled (same template format: name, division, question1–5)",
+        "Upload the CSV you filled (same template format: name, division, and the 5 questions)",
         type=["csv"],
-        key="upload_questionnaire_csv_auto"  # 🔹 changed to a unique key
+        key="upload_questionnaire_csv_auto"
     )
 
     if uploaded_q is not None:
@@ -244,22 +244,28 @@ with right:
         file_bytes = uploaded_q.getvalue()
         file_hash = hashlib.md5(file_bytes).hexdigest()
 
-        # Prevent repeated processing
+        # Prevent duplicate processing
         if st.session_state.get("last_uploaded_hash") == file_hash:
             st.info("✅ File already processed.")
         else:
             try:
                 df_upload = pd.read_csv(uploaded_q)
-                question_cols = [c for c in df_upload.columns if c.lower().strip().startswith("question")]
+
+                # Detect question columns
+                question_cols = [
+                    c for c in df_upload.columns
+                    if c.lower().strip().startswith("question")
+                    or any(q[:60] in c for q in st.session_state.get("questions", []))
+                ]
 
                 if not question_cols:
-                    st.error("❌ No 'question' columns found. Please use the downloaded template (name, division, question1..question5).")
+                    st.error("❌ Could not detect any question columns. Please re-download the latest template before filling responses.")
                 else:
                     total_rows = len(df_upload)
                     progress = st.progress(0)
                     added = 0
 
-                    # Determine next ID safely
+                    # Determine next available ID
                     try:
                         current_max_id = pd.to_numeric(df["id"], errors="coerce").max()
                         if pd.isna(current_max_id):
@@ -310,7 +316,6 @@ with right:
 
             except Exception as e:
                 st.error(f"Upload failed: {e}")
-
 
 # ---------- DASHBOARD ----------
 st.markdown("---")
