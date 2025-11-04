@@ -397,21 +397,39 @@ with tabs[3]:
         top_topics = df["topic"].value_counts().nlargest(3).index.tolist() if not df.empty else []
         sample_texts = "\n".join(df["message"].tail(10).tolist()) if not df.empty else "No feedback yet."
         previous_qs = " | ".join(st.session_state.get("questions", []))
+            # Retrieve most recent executive summaries if available
+        exec_summary_bullet = st.session_state.get("summary_bullet", "")
+        exec_summary_narrative = st.session_state.get("summary_narrative", "")
 
+        combined_summary = ""
+        if exec_summary_bullet or exec_summary_narrative:
+            combined_summary = f"""
+            HR Executive Summary (AI-Generated Insights):
+            - Bullet version:
+            {exec_summary_bullet}
+
+            - Narrative version:
+            {exec_summary_narrative}
+            """
         prompt = f"""
         You are an HR assistant creating balanced employee engagement questionnaires.
-        Based on these recent feedback comments:
+
+        Consider the following inputs:
+        1️⃣ Recent feedback comments:
         {sample_texts}
-        Sentiment mix: {sentiment_summary}.
-        Top themes: {', '.join(top_topics)}.
 
-        The last questionnaire asked the following questions:
-        {previous_qs}
+        2️⃣ Sentiment mix: {sentiment_summary}.
+        3️⃣ Top themes: {', '.join(top_topics)}.
+        4️⃣ Last questionnaire questions: {previous_qs}.
+        5️⃣ Recent HR Executive Summary insights:
+        {combined_summary}
 
-        Now generate 5 *new* open-ended questions (under 20 words total):
+        Based on these, generate 5 *new* open-ended questions (under 20 words each):
         - 2 exploring positive or uplifting themes
-        - 2 addressing emerging or recurring challenges (avoid repeating or paraphrasing the previous questions)
+        - 2 addressing recurring or emerging challenges
         - 1 reflective or forward-looking question about morale or improvement
+
+        Do not repeat or paraphrase earlier questions.
         Make each question distinct in tone and focus.
         Number them 1–5.
         """
