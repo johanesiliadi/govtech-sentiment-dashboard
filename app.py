@@ -153,19 +153,26 @@ if client and st.button("Generate next questionnaire"):
     sentiment_summary = df["sentiment"].value_counts().to_dict() if not df.empty else {}
     top_topics = df["topic"].value_counts().nlargest(3).index.tolist() if not df.empty else []
     sample_texts = "\n".join(df["message"].tail(10).tolist()) if not df.empty else "No feedback yet."
+    previous_qs = " | ".join(st.session_state.get("questions", []))  # 🆕 added line
+
     prompt = f"""
     You are an HR assistant creating balanced employee engagement questionnaires.
     Based on these recent feedback comments:
     {sample_texts}
     Sentiment mix: {sentiment_summary}.
     Top themes: {', '.join(top_topics)}.
-    Generate 5 open-ended questions (under 20 words total):
+
+    The last questionnaire asked the following questions:
+    {previous_qs}
+
+    Now generate 5 *new* open-ended questions (under 20 words total):
     - 2 exploring positive or uplifting themes
-    - 2 addressing emerging or recurring challenges (avoid repeating previous ones)
+    - 2 addressing emerging or recurring challenges (avoid repeating or paraphrasing the previous questions)
     - 1 reflective or forward-looking question about morale or improvement
-    Make each question distinct and phrased differently from earlier ones.
+    Make each question distinct in tone and focus.
     Number them 1–5.
     """
+    
     resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}])
     q_text = resp.choices[0].message.content
     new_qs = [line[line.find(".")+1:].strip() for line in q_text.splitlines() if line.strip() and line.strip()[0].isdigit()]
@@ -463,7 +470,7 @@ if client and st.button("Generate executive summaries (2 formats)"):
         st.rerun()
 
 if "summary_narrative" in st.session_state or "summary_bullet" in st.session_state:
-    tabs = st.tabs(["📝 Bullet Summary", "📋 Narrative Summary"])
+    tabs = st.tabs(["📝 Executive Bullet Summary", "📋 Executive Narrative Summary"])
     with tabs[0]:
         st.write(st.session_state.get("summary_bullet", "No summary yet."))
     with tabs[1]:
