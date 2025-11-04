@@ -103,27 +103,36 @@ def classify_text_batch_with_ai(df):
 
     For each line below, output one line in CSV format:
     sentiment,topic
+    (Do not include any other row)
 
-    Sentiment ∈ [Positive, Negative, Neutral, Frustrated]
-    Topic ∈ [Workload, Management Support, Work Environment, Communication, Growth, Others]
+    ──────────────
+    SENTIMENT CATEGORIES
+    - Positive      = praise, satisfaction, engagement, factual improvements (“better”, “improved”, “good”)
+    - Negative      = dissatisfaction or practical complaints (“reduce meetings”, “too slow”)
+    - Frustrated    = emotional fatigue, stress, burnout (“tired”, “fed up”, “overwhelmed”)
+    - Neutral       = purely factual statements without emotion or intent
+    When mixed tones appear, base the result on the **overall mood** of all answers.
 
-    Classification Rules:
-    - If multiple emotions appear, choose the most dominant one.
-    - "Neutral" is for factual statements that show neither satisfaction nor dissatisfaction.
-    - "Positive" includes satisfied, motivated, or constructive improvement tones (e.g., "please give me more work", "doing well", "so far so good").
-    - "Negative" is for dissatisfaction or complaint about practical issues (e.g., "too many steps", "system slow").
-    - "Frustrated" is for emotional stress, fatigue, or burnout (e.g., tired, stressed, fed up).
-    - "Frustrated" is for strong emotional distress or burnout.
+    CONTEXT AWARENESS  (important!)
+    - Read both question and answer together.
+    - If the question asks for positive changes or good experiences, treat factual improvements (“better communication”) as Positive.
+    - If the question asks for obstacles or suggestions, treat constructive feedback (“reduce meetings”) as Negative.
+    - If the answer shows disengagement or apathy (“nothing”, “don’t know”, “no teamwork”), classify as Frustrated.
+    - Only use Neutral if truly emotion-free.
     - If the feedback mentions being busy, overloaded, or overwhelmed but still functional, classify as Negative instead of Frustrated.
     - If mixed tones appear, classify based on the **overall intent or energy** — if the speaker sounds motivated or engaged, mark as Positive.
     - If the topic is not explicit in the answer, infer it from the question wording.
     - If a response implies disengagement, disinterest, or absence of positivity (e.g., "nothing at all", "no teamwork"), classify as **Frustrated**.
     - Treat rhetorical or sarcastic replies as **Frustrated** or **Negative** depending on tone.
 
+    TOPIC CATEGORIES
+    [Workload, Management Support, Work Environment, Communication, Growth, Teamwork, Others]
+
+
     Feedback messages:
     {msgs}
     """
-    resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}])
+    resp = client.chat.completions.create(model="gpt-5-mini", messages=[{"role": "user", "content": prompt}])
     text = resp.choices[0].message.content.strip()
     rows = [r.strip() for r in text.split("\n") if r.strip()]
     sentiments, topics = [], []
@@ -371,8 +380,8 @@ with tabs[2]:
         """
 
         with st.spinner("Generating AI summaries..."):
-            resp1 = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt_narrative}])
-            resp2 = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt_bullet}])
+            resp1 = client.chat.completions.create(model="gpt-5-mini", messages=[{"role": "user", "content": prompt_narrative}])
+            resp2 = client.chat.completions.create(model="gpt-5-mini", messages=[{"role": "user", "content": prompt_bullet}])
             summary_narrative = resp1.choices[0].message.content.strip()
             summary_bullet = resp2.choices[0].message.content.strip()
             st.session_state["summary_narrative"] = summary_narrative
@@ -436,7 +445,7 @@ with tabs[3]:
         Number them 1–5.
         """
 
-        resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}])
+        resp = client.chat.completions.create(model="gpt-5-mini", messages=[{"role": "user", "content": prompt}])
         q_text = resp.choices[0].message.content
         new_qs = [line[line.find(".")+1:].strip() for line in q_text.splitlines() if line.strip() and line.strip()[0].isdigit()]
         if new_qs:
