@@ -11,7 +11,7 @@ except Exception:
     OpenAI = None
 
 # ---------- PAGE CONFIG ----------
-st.set_page_config(page_title="💬 AI Sentiment & Feedback Tracker", page_icon="💬", layout="wide")
+st.set_page_config(page_title="AI Sentiment & Feedback Tracker", page_icon="💬", layout="wide")
 
 st.markdown(
     """
