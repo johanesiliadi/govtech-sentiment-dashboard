@@ -408,18 +408,27 @@ with tabs[3]:
 
     # 📈 Optional context box for HR actions/improvements
     st.markdown("#### 📈 Context for Next Round")
-    improvements = st.text_area(
+
+    # Initialize improvements state
+    if "improvements" not in st.session_state:
+        st.session_state.improvements = ""
+
+    # Text area for HR to describe recent actions
+    st.session_state.improvements = st.text_area(
         "Briefly describe recent improvements or management actions (optional):",
+        value=st.session_state.improvements,
         placeholder="e.g. Reduced meetings, added weekly sync sessions, introduced wellness break."
     )
 
+    # 🧠 When button is clicked
     if client and st.button("Generate next questionnaire"):
+        improvements = st.session_state.improvements.strip()
         sentiment_summary = df["sentiment"].value_counts().to_dict() if not df.empty else {}
         top_topics = df["topic"].value_counts().nlargest(3).index.tolist() if not df.empty else []
         sample_texts = "\n".join(df["message"].tail(10).tolist()) if not df.empty else "No feedback yet."
         previous_qs = " | ".join(st.session_state.get("questions", []))
 
-        # Retrieve most recent executive summaries if available
+        # Retrieve summaries if available
         exec_summary_bullet = st.session_state.get("summary_bullet", "")
         exec_summary_narrative = st.session_state.get("summary_narrative", "")
         combined_summary = ""
@@ -433,7 +442,7 @@ with tabs[3]:
             {exec_summary_narrative}
             """
 
-        # 🔍 Detect dominant negative/frustrated topics for drill-down
+        # 🔍 Detect dominant negative/frustrated topics
         dominant_negative_topics = []
         if not df.empty:
             neg_df = df[df["sentiment"].isin(["Negative", "Frustrated"])]
@@ -458,11 +467,10 @@ with tabs[3]:
         {combined_summary}
         """
 
-        # Add optional context about improvements
-        if improvements.strip():
+        # Include the typed improvements if any
+        if improvements:
             prompt += f"\n7️⃣ Recent improvements or management actions:\n{improvements}\n"
 
-        # Add the generation instructions
         prompt += """
         Generate 5 concise questions (<20 words each) that create a balanced mix:
         - 2 positive or uplifting questions (focus on wins, motivation, appreciation)
@@ -483,6 +491,7 @@ with tabs[3]:
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}]
             )
+
         q_text = resp.choices[0].message.content
         new_qs = [
             line[line.find(".") + 1:].strip()
@@ -493,8 +502,13 @@ with tabs[3]:
         if new_qs:
             st.session_state.questions = new_qs
             append_questions_history(new_qs)
+
+            # ✅ Clear the improvements field after successful generation
+            st.session_state.improvements = ""
+
             st.success("✅ New questionnaire generated!")
             st.rerun()
+
 
     # 🕒 Show question history
     if os.path.exists(QUESTIONS_FILE):
