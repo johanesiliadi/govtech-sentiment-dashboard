@@ -232,6 +232,43 @@ if not df.empty:
         ["timestamp", "employee", "department", "message", "sentiment", "topic"]
     ], use_container_width=True, hide_index=True)
 
+# ---------- SENTIMENT TREND VISUALIZATION ----------
+if os.path.exists(TREND_FILE):
+    st.markdown("---")
+    st.subheader("📈 Morale Trend Over Time")
+    try:
+        tdf = pd.read_csv(TREND_FILE)
+        if not tdf.empty and "timestamp" in tdf.columns:
+            # Sort and ensure numeric
+            tdf["timestamp"] = pd.to_datetime(tdf["timestamp"], errors="coerce")
+            tdf = tdf.sort_values("timestamp")
+
+            # Main morale index line chart
+            st.plotly_chart(
+                px.line(
+                    tdf,
+                    x="timestamp",
+                    y="avg_score",
+                    markers=True,
+                    title="Average Morale Index (Higher = Better)",
+                ),
+                use_container_width=True,
+            )
+
+            # Optional stacked area showing sentiment mix
+            st.plotly_chart(
+                px.area(
+                    tdf,
+                    x="timestamp",
+                    y=["Positive", "Negative", "Frustrated", "Neutral"],
+                    title="Sentiment Composition Over Time",
+                    color_discrete_map=SENTIMENT_COLORS,
+                ),
+                use_container_width=True,
+            )
+    except Exception as e:
+        st.warning(f"⚠️ Unable to render morale trend chart: {e}")
+
 # ---------- EXECUTIVE SUMMARY ----------
 st.markdown("---")
 st.subheader("🧠 AI Insights Summary")
@@ -268,6 +305,7 @@ if client and st.button("Generate executive summaries (2 formats)"):
 
     Write a clear, reader-friendly summary (no numbers or scores).
     Focus on qualitative patterns — e.g., “morale is improving”, “frustrations are growing”.
+    For each part give 1-3 bullet points
 
     Include these four parts:
     1️⃣ Key morale issues and frustrations.
