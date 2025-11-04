@@ -442,14 +442,17 @@ with tabs[3]:
             {exec_summary_narrative}
             """
 
-        # 🔍 Detect dominant negative/frustrated topics
-        dominant_negative_topics = []
+        # Identify dominant positive and negative themes
+        dominant_positive_topics, dominant_negative_topics = [], []
         if not df.empty:
+            pos_df = df[df["sentiment"] == "Positive"]
             neg_df = df[df["sentiment"].isin(["Negative", "Frustrated"])]
+
+            if not pos_df.empty:
+                dominant_positive_topics = pos_df["topic"].value_counts().nlargest(2).index.tolist()
             if not neg_df.empty:
-                dominant_negative_topics = (
-                    neg_df["topic"].value_counts().nlargest(2).index.tolist()
-                )
+                dominant_negative_topics = neg_df["topic"].value_counts().nlargest(2).index.tolist()
+
 
         # 🧠 Build dynamic prompt
         prompt = f"""
@@ -460,21 +463,21 @@ with tabs[3]:
         {sample_texts}
 
         2️⃣ Sentiment mix: {sentiment_summary}.
-        3️⃣ Top themes: {', '.join(top_topics)}.
-        4️⃣ Dominant negative areas to explore: {', '.join(dominant_negative_topics) if dominant_negative_topics else 'None detected'}.
-        5️⃣ Previous questionnaire: {previous_qs}.
-        6️⃣ Recent HR Executive Summary insights:
+        3️⃣ Top themes overall: {', '.join(top_topics)}.
+        4️⃣ Positive themes to celebrate or build upon: {', '.join(dominant_positive_topics) if dominant_positive_topics else 'None detected'}.
+        5️⃣ Dominant negative or frustrated areas to explore: {', '.join(dominant_negative_topics) if dominant_negative_topics else 'None detected'}.
+        6️⃣ Previous questionnaire: {previous_qs}.
+        7️⃣ Recent HR Executive Summary insights:
         {combined_summary}
         """
 
-        # Include the typed improvements if any
         if improvements:
-            prompt += f"\n7️⃣ Recent improvements or management actions:\n{improvements}\n"
+            prompt += f"\n8️⃣ Recent improvements or management actions:\n{improvements}\n"
 
         prompt += """
         Generate 5 concise questions (<20 words each) that create a balanced mix:
-        - 2 positive or uplifting questions (focus on wins, motivation, appreciation)
-        - 2 follow-up questions targeting the main negative or frustrated themes (ask about root causes or improvements)
+        - 2 positive or uplifting questions (focus on wins, motivation, appreciation, or improvements)
+        - 2 follow-up questions targeting the main negative or frustrated themes (root causes or changes)
         - 1 reflective or forward-looking question (team morale or next steps)
 
         Guidelines:
@@ -484,7 +487,7 @@ with tabs[3]:
         - Avoid repeating or rephrasing earlier questions.
         - Number them 1–5.
         """
-
+        
         # 🔮 Generate via OpenAI
         with st.spinner("Generating adaptive questionnaire with AI..."):
             resp = client.chat.completions.create(
