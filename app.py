@@ -36,7 +36,7 @@ st.markdown(
 
 # ---------- HEADER ----------
 st.title("AI Sentiment & Feedback Tracker")
-st.caption("🏆 Hackathon Proof of Concept — AI-powered employee sentiment monitoring, trend visualization & adaptive questionnaire generation")
+st.caption("Proof of Concept — AI-powered employee sentiment monitoring, trend visualization & adaptive questionnaire generation")
 
 st.info("🧭 **Flow:** ① Collect feedback → ② View sentiment trend → ③ Generate executive summaries & recommended actions → ④ Generate next questionnaire", icon="✨")
 
@@ -350,7 +350,7 @@ with tabs[1]:
 # TAB 3 - EXECUTIVE INSIGHTS
 # ======================================================
 with tabs[2]:
-    st.subheader("🧠 Executive Summary Generator")
+    st.subheader("Executive Summary Generator")
 
     if client and st.button("Generate executive summaries & recommended actions (2 formats)"):
         joined = "\n".join(df["message"].tolist()) if not df.empty else "(no feedback)"
@@ -392,7 +392,7 @@ with tabs[2]:
         2️ Positive highlights or improvements.
         3️ Mood shifts over time (no numeric data), Include whether overall morale is improving or declining based on recent feedback.
         4️ Which divisions or teams seem to need more attention.
-        5 Suggests and recommend clear and people-oriented next actions.
+        5 Suggests and recommend clear next actions for short term and long term.
 
         Trend notes (for your reference): {trend_snippet}
         Divisions: {dept_list}
