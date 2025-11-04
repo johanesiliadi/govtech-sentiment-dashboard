@@ -211,18 +211,24 @@ with right:
         mime="text/csv"
     )
 
-    # ---- DOWNLOAD CSV TEMPLATE FOR CURRENT QUESTIONNAIRE ----
+     # ---- DOWNLOAD CSV TEMPLATE FOR CURRENT QUESTIONNAIRE ----
     if st.session_state.questions:
-        headers = ["name", "division"] + [f"question {i+1}" for i in range(len(st.session_state.questions))]
+        # Use the real questions as headers (shortened for Excel readability)
+        headers = ["name", "division"] + [
+            (q[:60] + "...") if len(q) > 60 else q for q in st.session_state.questions
+        ]
+
         template_df = pd.DataFrame(columns=headers)
         csv_data = template_df.to_csv(index=False)
+
         st.download_button(
             "⬇️ Download CSV Template for Current Questionnaire",
             data=csv_data.encode("utf-8"),
             file_name="questionnaire_template.csv",
             mime="text/csv",
-            help="Download a blank CSV with the current 5 questions as column headers.",
+            help="Download a blank CSV with the current AI-generated questions as column headers.",
         )
+
 
     # ---- UPLOAD FILLED QUESTIONNAIRE RESPONSES (AUTO PROCESS ONCE) ----
     st.markdown("### 📤 Upload Filled Questionnaire Responses")
