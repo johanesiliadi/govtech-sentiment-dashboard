@@ -193,15 +193,79 @@ with left:
                 st.rerun()
 
 # ---------- RIGHT: MANAGEMENT ----------
+# ---------- RIGHT: MANAGEMENT ----------
 with right:
     st.subheader("📜 Questionnaire & Data Management")
+
+    # Show recent questionnaire history
     if os.path.exists(QUESTIONS_FILE):
         hist = pd.read_csv(QUESTIONS_FILE)
         if not hist.empty:
             st.dataframe(hist.tail(5).iloc[::-1], use_container_width=True, hide_index=True)
-    st.download_button("⬇️ Download Current Questions",
-                       data="\n".join(st.session_state.questions),
-                       file_name="current_questions.csv", mime="text/csv")
+
+    # Download current questions
+    st.download_button(
+        "⬇️ Download Current Questions",
+        data="\n".join(st.session_state.questions),
+        file_name="current_questions.csv",
+        mime="text/csv"
+    )
+
+    # ---- DOWNLOAD CSV TEMPLATE FOR CURRENT QUESTIONNAIRE ----
+    if st.session_state.questions:
+        headers = ["name", "division"] + [f"question {i+1}" for i in range(len(st.session_state.questions))]
+        template_df = pd.DataFrame(columns=headers)
+        csv_data = template_df.to_csv(index=False)
+        st.download_button(
+            "⬇️ Download CSV Template for Current Questionnaire",
+            data=csv_data.encode("utf-8"),
+            file_name="questionnaire_template.csv",
+            mime="text/csv",
+            help="Download a blank CSV with the current 5 questions as column headers.",
+        )
+
+    # ---- UPLOAD FILLED QUESTIONNAIRE RESPONSES ----
+    st.markdown("### 📤 Upload Filled Questionnaire Responses")
+    uploaded_q = st.file_uploader(
+        "Upload the CSV you filled (same template format: name, division, question1–5)",
+        type=["csv"],
+        key="upload_questionnaire_csv"
+    )
+
+    if uploaded_q:
+        try:
+            df_upload = pd.read_csv(uploaded_q)
+            question_cols = [col for col in df_upload.columns if col.lower().startswith("question")]
+
+            if not question_cols:
+                st.error("❌ No 'question' columns found. Please ensure your CSV follows the downloaded template format.")
+            else:
+                # Merge answers into one message field
+                df_upload["message"] = df_upload[question_cols].fillna("").apply(lambda x: " | ".join(x), axis=1)
+                df_upload.rename(columns={"name": "employee", "division": "department"}, inplace=True)
+
+                # Create new entries
+                new_entries = df_upload[["employee", "department", "message"]].copy()
+                new_entries["id"] = [
+                    int(df["id"].max()) + i + 1 if len(df) else i + 1 for i in range(len(new_entries))
+                ]
+                new_entries["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                new_entries["date"] = datetime.now().strftime("%Y-%m-%d")
+
+                with st.spinner("🤖 Analyzing uploaded feedback in batch..."):
+                    sentiments, topics = classify_text_batch_with_ai(new_entries)
+                    new_entries["sentiment"] = sentiments
+                    new_entries["topic"] = topics
+
+                # Save and refresh
+                st.session_state.df = pd.concat([st.session_state.df, new_entries], ignore_index=True)
+                save_data(st.session_state.df)
+                st.success(f"✅ Uploaded & classified {len(new_entries)} new responses.")
+                st.rerun()
+
+        except Exception as e:
+            st.error(f"Upload failed: {e}")
+
 
 # ---------- DASHBOARD ----------
 st.markdown("---")
@@ -338,9 +402,9 @@ if client and st.button("Generate executive summaries (2 formats)"):
         st.rerun()
 
 if "summary_narrative" in st.session_state or "summary_bullet" in st.session_state:
-    tabs = st.tabs(["📝 Narrative Summary", "📋 Bullet Summary"])
+    tabs = st.tabs(["📝 Bullet Summary", "📋 Narrative Summary"])
     with tabs[0]:
-        st.write(st.session_state.get("summary_narrative", "No summary yet."))
-    with tabs[1]:
         st.write(st.session_state.get("summary_bullet", "No summary yet."))
+    with tabs[1]:
+        st.write(st.session_state.get("summary_narrative", "No summary yet."))
 
