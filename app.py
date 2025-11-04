@@ -79,11 +79,12 @@ def classify_text_batch_with_ai(df):
 
     Classification Rules:
     - If multiple emotions appear, choose the most dominant one.
-    - "Frustrated" is for emotional stress, fatigue, or burnout (e.g., tired, fed up, stressed, overwhelmed).
-    - "Negative" is for practical issues or dissatisfaction (e.g., too many steps, system slow, unclear process).
-    - "Neutral" is for factual or emotionless statements.
-    - "Positive" is for encouraging, happy, or appreciative feedback.
-    - If tone mixes frustration and practical issues, prefer "Negative" unless clear emotional strain is shown.
+    - "Neutral" is for factual or emotionless statements **without clear emotion or intent**.
+    - "Positive" includes satisfied, motivated, or constructive improvement tones (e.g., "please give me more work", "doing well", "so far so good").
+    - "Negative" is for dissatisfaction or complaint about practical issues (e.g., "too many steps", "system slow").
+    - "Frustrated" is for emotional stress, fatigue, or burnout (e.g., tired, stressed, fed up).
+    - If mixed tones appear, classify based on the **overall intent or energy** — if the speaker sounds motivated or engaged, mark as Positive.
+
 
     Feedback messages:
     {msgs}
