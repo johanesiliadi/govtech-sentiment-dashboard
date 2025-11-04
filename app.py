@@ -503,8 +503,9 @@ with tabs[3]:
             st.session_state.questions = new_qs
             append_questions_history(new_qs)
 
-            # ✅ Clear the improvements field after successful generation
             st.session_state.improvements = ""
+            st.session_state.improvement_box = ""  # Force UI to refresh
+
 
             st.success("✅ New questionnaire generated!")
             st.rerun()
