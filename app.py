@@ -38,7 +38,7 @@ st.markdown(
 st.title("AI Sentiment & Feedback Tracker")
 st.caption("🏆 Hackathon Proof of Concept — AI-powered employee sentiment monitoring, trend visualization & adaptive questionnaire generation")
 
-st.info("🧭 **Flow:** ① Collect feedback → ② View sentiment trend → ③ Generate executive summaries → ④ Generate next questionnaire", icon="✨")
+st.info("🧭 **Flow:** ① Collect feedback → ② View sentiment trend → ③ Generate executive summaries & recommended actions → ④ Generate next questionnaire", icon="✨")
 
 # ---------- OPENAI CLIENT ----------
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
@@ -352,7 +352,7 @@ with tabs[1]:
 with tabs[2]:
     st.subheader("🧠 Executive Summary Generator")
 
-    if client and st.button("Generate executive summaries (2 formats)"):
+    if client and st.button("Generate executive summaries & recommended actions (2 formats)"):
         joined = "\n".join(df["message"].tolist()) if not df.empty else "(no feedback)"
 
         trend_snippet = []
@@ -387,12 +387,12 @@ with tabs[2]:
         Focus on qualitative patterns — e.g., “morale is improving”, “frustrations are growing”.
         For each part give 1-3 bullet points and total summary need to be less than 250 words
 
-        Include these four parts:
+        Include these 5 parts:
         1️ Key morale issues and frustrations.
         2️ Positive highlights or improvements.
         3️ Mood shifts over time (no numeric data), Include whether overall morale is improving or declining based on recent feedback.
         4️ Which divisions or teams seem to need more attention.
-        5 Suggests clear, people-oriented next actions for HR or management.
+        5 Suggests and recommend clear and people-oriented next actions.
 
         Trend notes (for your reference): {trend_snippet}
         Divisions: {dept_list}
