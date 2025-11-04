@@ -438,17 +438,22 @@ with tabs[3]:
         5️⃣ Recent HR Executive Summary insights:
         {combined_summary}
 
-        Based on these, generate 5 *new* open-ended questions (under 20 words each):
-        - 2 exploring positive or uplifting themes
-        - 2 addressing recurring or emerging challenges
-        - 1 reflective or forward-looking question about morale or improvement
+        Generate 5 concise questions (<20 words each) that create a balanced mix:
+        - 2 positive or uplifting questions (focus on wins, improvements, gratitude)
+        - 2 constructive / challenge questions (invite honest feedback on obstacles)
+        - 1 reflective or forward-looking question (morale, ideas for improvement)
 
-        Do not repeat or paraphrase earlier questions.
-        Make each question distinct in tone and focus.
-        Number them 1–5.
+        Tone guidelines:
+        - Keep language neutral and non-leading (avoid only negative framing)
+        - Mix question formats:
+            • At least one rating or yes/no type
+            • Others open-ended (1-sentence expected)
+        - Each question should sound conversational and caring, not corporate.
+        - Avoid rephrasing or repeating any previous questions.
+        - Number them 1–5.
         """
 
-        resp = client.chat.completions.create(model="gpt-5-mini", messages=[{"role": "user", "content": prompt}])
+        resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}])
         q_text = resp.choices[0].message.content
         new_qs = [line[line.find(".")+1:].strip() for line in q_text.splitlines() if line.strip() and line.strip()[0].isdigit()]
         if new_qs:
