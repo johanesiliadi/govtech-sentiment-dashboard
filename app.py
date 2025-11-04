@@ -160,9 +160,10 @@ if client and st.button("Generate next questionnaire"):
     Sentiment mix: {sentiment_summary}.
     Top themes: {', '.join(top_topics)}.
     Generate 5 open-ended questions (under 20 words total):
-    - 2 exploring positive experiences
-    - 2 addressing challenges or frustrations
-    - 1 neutral morale-reflection question
+    - 2 exploring positive or uplifting themes
+    - 2 addressing emerging or recurring challenges (avoid repeating previous ones)
+    - 1 reflective or forward-looking question about morale or improvement
+    Make each question distinct and phrased differently from earlier ones.
     Number them 1–5.
     """
     resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}])
