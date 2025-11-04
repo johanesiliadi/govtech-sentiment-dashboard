@@ -355,6 +355,7 @@ with tabs[2]:
         - Highlights main pain points or frustrations
         - Notes positive or improving aspects
         - Suggests clear, people-oriented next actions for HR or management
+        Include whether overall morale is improving or declining based on recent feedback.
         Avoid numeric counts and keep the tone empathetic, concise, and professional.
         Focus on qualitative patterns — e.g., “morale is improving”, “frustrations are growing”.
 
@@ -372,7 +373,7 @@ with tabs[2]:
         Include these four parts:
         1️⃣ Key morale issues and frustrations.
         2️⃣ Positive highlights or improvements.
-        3️⃣ Mood shifts over time (no numeric data).
+        3️⃣ Mood shifts over time (no numeric data), Include whether overall morale is improving or declining based on recent feedback.
         4️⃣ Which divisions or teams seem to need more attention.
 
         Trend notes (for your reference): {trend_snippet}
@@ -487,7 +488,7 @@ with tabs[3]:
         - Avoid repeating or rephrasing earlier questions.
         - Number them 1–5.
         """
-        
+
         # 🔮 Generate via OpenAI
         with st.spinner("Generating adaptive questionnaire with AI..."):
             resp = client.chat.completions.create(
