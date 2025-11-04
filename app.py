@@ -149,18 +149,33 @@ def classify_text_batch_with_ai(df):
     return sentiments[:len(df)], topics[:len(df)]
 
 def update_sentiment_trend_per_run(df):
+    """Updates morale trend only if last update was more than 2 minutes ago."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Avoid duplicate updates within short intervals
+    if os.path.exists(TREND_FILE):
+        tdf = pd.read_csv(TREND_FILE)
+        if not tdf.empty:
+            last_time = pd.to_datetime(tdf["timestamp"].iloc[-1], errors="coerce")
+            if not pd.isna(last_time):
+                seconds_since_last = (datetime.now() - last_time.to_pydatetime()).total_seconds()
+                if seconds_since_last < 120:
+                    return  # Skip update if last entry was within 2 minutes
+
     counts = df["sentiment"].value_counts().to_dict()
     total = sum(counts.values()) or 1
     weighted_sum = sum(SENTIMENT_WEIGHTS.get(k, 0) * v for k, v in counts.items())
     avg_score = weighted_sum / total
     row = {"timestamp": timestamp, "avg_score": avg_score, **{s: counts.get(s, 0) for s in ALLOWED_SENTIMENTS}}
+
     if os.path.exists(TREND_FILE):
         tdf = pd.read_csv(TREND_FILE)
         tdf = pd.concat([tdf, pd.DataFrame([row])], ignore_index=True)
     else:
         tdf = pd.DataFrame([row])
+
     tdf.to_csv(TREND_FILE, index=False)
+
 
 def load_latest_questions():
     default_q = [
@@ -231,6 +246,7 @@ with tabs[0]:
                     st.session_state.df = pd.concat([st.session_state.df, pd.DataFrame([new_row])], ignore_index=True)
                     save_data(st.session_state.df)
                     st.success(f"✅ Saved — Sentiment: **{sentiment}**, Topic: **{topic}**")
+                    update_sentiment_trend_per_run(st.session_state.df)
                     st.rerun()
 
     with col2:
@@ -282,6 +298,7 @@ with tabs[0]:
                     save_data(st.session_state.df)
                     st.session_state["last_uploaded_hash"] = file_hash
                     st.success(f"✅ Uploaded & analyzed {added} feedback entr{'y' if added == 1 else 'ies'}.")
+                    update_sentiment_trend_per_run(st.session_state.df)
                     st.rerun()
                 except Exception as e:
                     st.error(f"Upload failed: {e}")
@@ -371,10 +388,11 @@ with tabs[2]:
         For each part give 1-3 bullet points and total summary need to be less than 250 words
 
         Include these four parts:
-        1️⃣ Key morale issues and frustrations.
-        2️⃣ Positive highlights or improvements.
-        3️⃣ Mood shifts over time (no numeric data), Include whether overall morale is improving or declining based on recent feedback.
-        4️⃣ Which divisions or teams seem to need more attention.
+        1️ Key morale issues and frustrations.
+        2️ Positive highlights or improvements.
+        3️ Mood shifts over time (no numeric data), Include whether overall morale is improving or declining based on recent feedback.
+        4️ Which divisions or teams seem to need more attention.
+        5 Suggests clear, people-oriented next actions for HR or management.
 
         Trend notes (for your reference): {trend_snippet}
         Divisions: {dept_list}
