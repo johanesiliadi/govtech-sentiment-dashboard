@@ -35,10 +35,10 @@ st.markdown(
 )
 
 # ---------- HEADER ----------
-st.title("💬 AI Sentiment & Feedback Tracker")
+st.title("AI Sentiment & Feedback Tracker")
 st.caption("🏆 Hackathon Proof of Concept — AI-powered employee sentiment monitoring, trend visualization & adaptive questionnaire generation")
 
-st.info("🧭 **Demo Flow:** ① Collect feedback → ② View sentiment trend → ③ Generate executive summaries → ④ Generate next questionnaire", icon="✨")
+st.info("🧭 **Flow:** ① Collect feedback → ② View sentiment trend → ③ Generate executive summaries → ④ Generate next questionnaire", icon="✨")
 
 # ---------- OPENAI CLIENT ----------
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
@@ -94,7 +94,12 @@ def classify_text_batch_with_ai(df):
 
     msgs = "\n".join([f"{i+1}. {m}" for i, m in enumerate(df["message"].tolist()) if str(m).strip()])
     prompt = f"""
-    You are classifying employee feedback messages by emotion and topic.
+    You are classifying employee feedback entries by emotion and topic.
+
+    Each line represents **a question and its corresponding answer**, formatted as:
+    "Q: <question> | A: <answer>"
+
+    Use the full context of both the question and the answer to determine sentiment and topic.
 
     For each line below, output one line in CSV format:
     sentiment,topic
@@ -109,6 +114,7 @@ def classify_text_batch_with_ai(df):
     - "Negative" is for dissatisfaction or complaint about practical issues (e.g., "too many steps", "system slow").
     - "Frustrated" is for emotional stress, fatigue, or burnout (e.g., tired, stressed, fed up).
     - If mixed tones appear, classify based on the **overall intent or energy** — if the speaker sounds motivated or engaged, mark as Positive.
+    - If the topic is not explicit in the answer, infer it from the question wording.
 
     Feedback messages:
     {msgs}
@@ -190,7 +196,11 @@ with tabs[0]:
             submitted = st.form_submit_button("Submit Feedback 🚀")
 
             if submitted:
-                msg = " | ".join([a for a in answers if a.strip()])
+                msg_pairs = []
+                for q, a in zip(st.session_state.questions, answers):
+                    if a.strip():
+                        msg_pairs.append(f"Q: {q} | A: {a.strip()}")
+                msg = " || ".join(msg_pairs)
                 if msg:
                     with st.spinner("🔍 Analyzing feedback with AI..."):
                         sentiment, topic = classify_text_batch_with_ai(pd.DataFrame([{"message": msg}]))
@@ -230,7 +240,12 @@ with tabs[0]:
                     for idx, row in df_upload.iterrows():
                         employee = str(row.get("name", "")).strip()
                         dept = str(row.get("division", "")).strip()
-                        msg = " | ".join([str(row[q]).strip() for q in question_cols if pd.notna(row[q])])
+                        msg_pairs = []
+                        for q in question_cols:
+                            val = str(row[q]).strip()
+                            if val:
+                                msg_pairs.append(f"Q: {q} | A: {val}")
+                        msg = " || ".join(msg_pairs)
                         if not msg: continue
                         with st.spinner(f"Analyzing {idx + 1}/{total_rows}..."):
                             sentiment, topic = classify_text_batch_with_ai(pd.DataFrame([{"message": msg}]))
