@@ -132,7 +132,7 @@ def classify_text_batch_with_ai(df):
     Feedback messages:
     {msgs}
     """
-    resp = client.chat.completions.create(model="gpt-5-mini", messages=[{"role": "user", "content": prompt}])
+    resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}])
     text = resp.choices[0].message.content.strip()
     rows = [r.strip() for r in text.split("\n") if r.strip()]
     sentiments, topics = [], []
@@ -380,7 +380,7 @@ with tabs[2]:
         """
 
         with st.spinner("Generating AI summaries..."):
-            resp1 = client.chat.completions.create(model="gpt-5-mini", messages=[{"role": "user", "content": prompt_narrative}])
+            resp1 = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt_narrative}])
             resp2 = client.chat.completions.create(model="gpt-5-mini", messages=[{"role": "user", "content": prompt_bullet}])
             summary_narrative = resp1.choices[0].message.content.strip()
             summary_bullet = resp2.choices[0].message.content.strip()
