@@ -406,15 +406,22 @@ with tabs[2]:
 with tabs[3]:
     st.subheader("🧩 Adaptive Questionnaire Builder")
 
+    # 📈 Optional context box for HR actions/improvements
+    st.markdown("#### 📈 Context for Next Round")
+    improvements = st.text_area(
+        "Briefly describe recent improvements or management actions (optional):",
+        placeholder="e.g. Reduced meetings, added weekly sync sessions, introduced wellness break."
+    )
+
     if client and st.button("Generate next questionnaire"):
         sentiment_summary = df["sentiment"].value_counts().to_dict() if not df.empty else {}
         top_topics = df["topic"].value_counts().nlargest(3).index.tolist() if not df.empty else []
         sample_texts = "\n".join(df["message"].tail(10).tolist()) if not df.empty else "No feedback yet."
         previous_qs = " | ".join(st.session_state.get("questions", []))
-            # Retrieve most recent executive summaries if available
+
+        # Retrieve most recent executive summaries if available
         exec_summary_bullet = st.session_state.get("summary_bullet", "")
         exec_summary_narrative = st.session_state.get("summary_narrative", "")
-
         combined_summary = ""
         if exec_summary_bullet or exec_summary_narrative:
             combined_summary = f"""
@@ -425,62 +432,92 @@ with tabs[3]:
             - Narrative version:
             {exec_summary_narrative}
             """
-        prompt = f"""
-        You are an HR assistant creating balanced employee engagement questionnaires.
 
-        Consider the following inputs:
+        # 🔍 Detect dominant negative/frustrated topics for drill-down
+        dominant_negative_topics = []
+        if not df.empty:
+            neg_df = df[df["sentiment"].isin(["Negative", "Frustrated"])]
+            if not neg_df.empty:
+                dominant_negative_topics = (
+                    neg_df["topic"].value_counts().nlargest(2).index.tolist()
+                )
+
+        # 🧠 Build dynamic prompt
+        prompt = f"""
+        You are an HR assistant creating the next short employee engagement questionnaire.
+
+        Consider the following:
         1️⃣ Recent feedback comments:
         {sample_texts}
 
         2️⃣ Sentiment mix: {sentiment_summary}.
         3️⃣ Top themes: {', '.join(top_topics)}.
-        4️⃣ Last questionnaire questions: {previous_qs}.
-        5️⃣ Recent HR Executive Summary insights:
+        4️⃣ Dominant negative areas to explore: {', '.join(dominant_negative_topics) if dominant_negative_topics else 'None detected'}.
+        5️⃣ Previous questionnaire: {previous_qs}.
+        6️⃣ Recent HR Executive Summary insights:
         {combined_summary}
+        """
 
+        # Add optional context about improvements
+        if improvements.strip():
+            prompt += f"\n7️⃣ Recent improvements or management actions:\n{improvements}\n"
+
+        # Add the generation instructions
+        prompt += """
         Generate 5 concise questions (<20 words each) that create a balanced mix:
-        - 2 positive or uplifting questions (focus on wins, improvements, gratitude)
-        - 2 constructive / challenge questions (invite honest feedback on obstacles)
-        - 1 reflective or forward-looking question (morale, ideas for improvement)
+        - 2 positive or uplifting questions (focus on wins, motivation, appreciation)
+        - 2 follow-up questions targeting the main negative or frustrated themes (ask about root causes or improvements)
+        - 1 reflective or forward-looking question (team morale or next steps)
 
-        Tone guidelines:
-        - Keep language neutral and non-leading (avoid only negative framing)
-        - Mix question formats:
-            • At least one rating or yes/no type
-            • Others open-ended (1-sentence expected)
-        - Each question should sound conversational and caring, not corporate.
-        - Avoid rephrasing or repeating any previous questions.
+        Guidelines:
+        - Keep tone empathetic and conversational (avoid corporate phrasing).
+        - Mix open-ended and short rating/yes-no style questions.
+        - Include at least one question checking whether recent improvements helped.
+        - Avoid repeating or rephrasing earlier questions.
         - Number them 1–5.
         """
 
-        resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}])
+        # 🔮 Generate via OpenAI
+        with st.spinner("Generating adaptive questionnaire with AI..."):
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}]
+            )
         q_text = resp.choices[0].message.content
-        new_qs = [line[line.find(".")+1:].strip() for line in q_text.splitlines() if line.strip() and line.strip()[0].isdigit()]
+        new_qs = [
+            line[line.find(".") + 1:].strip()
+            for line in q_text.splitlines()
+            if line.strip() and line.strip()[0].isdigit()
+        ]
+
         if new_qs:
             st.session_state.questions = new_qs
             append_questions_history(new_qs)
             st.success("✅ New questionnaire generated!")
             st.rerun()
 
+    # 🕒 Show question history
     if os.path.exists(QUESTIONS_FILE):
         hist = pd.read_csv(QUESTIONS_FILE)
         st.markdown("### 🕒 Recent Questionnaires")
         st.dataframe(hist.tail(5).iloc[::-1], use_container_width=True, hide_index=True)
 
-    st.download_button("⬇️ Download Current Questions", "\n".join(st.session_state.questions),
-                       file_name="current_questions.csv", mime="text/csv")
-    
-        # ---- DOWNLOAD CSV TEMPLATE FOR CURRENT QUESTIONNAIRE ----
+    # ⬇️ Download current questions
+    st.download_button(
+        "⬇️ Download Current Questions",
+        "\n".join(st.session_state.questions),
+        file_name="current_questions.csv",
+        mime="text/csv"
+    )
+
+    # 📄 Download blank response template
     st.markdown("### 📄 Download Blank Response Template")
     if st.session_state.questions:
-        # Use the real questions as headers (shortened for Excel readability)
         headers = ["name", "division"] + [
             (q[:60] + "...") if len(q) > 60 else q for q in st.session_state.questions
         ]
-
         template_df = pd.DataFrame(columns=headers)
         csv_data = template_df.to_csv(index=False)
-
         st.download_button(
             "⬇️ Download CSV Template for Current Questionnaire",
             data=csv_data.encode("utf-8"),
@@ -488,4 +525,3 @@ with tabs[3]:
             mime="text/csv",
             help="Download a blank CSV with the current AI-generated questions as column headers.",
         )
-
