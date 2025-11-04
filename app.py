@@ -78,12 +78,12 @@ def classify_text_batch_with_ai(df):
     Topic ∈ [Workload, Management Support, Work Environment, Communication, Growth, Others]
 
     Classification Rules:
-    - If mixed emotions appear, choose the strongest emotion.
-    - Fatigue, exhaustion, burnout, or stress → "Frustrated".
-    - Complaints, dissatisfaction, or issues → "Negative".
-    - Only use "Neutral" if the tone is calm, factual, or emotionless.
-    - Only use "Positive" if the feedback is clearly upbeat or appreciative.
-    - When unsure, lean toward a more emotionally expressive category.
+    - If multiple emotions appear, choose the most dominant one.
+    - "Frustrated" is for emotional stress, fatigue, or burnout (e.g., tired, fed up, stressed, overwhelmed).
+    - "Negative" is for practical issues or dissatisfaction (e.g., too many steps, system slow, unclear process).
+    - "Neutral" is for factual or emotionless statements.
+    - "Positive" is for encouraging, happy, or appreciative feedback.
+    - If tone mixes frustration and practical issues, prefer "Negative" unless clear emotional strain is shown.
 
     Feedback messages:
     {msgs}
@@ -203,7 +203,6 @@ with left:
                 st.success(f"✅ Saved — Sentiment: {sentiment}, Topic: {topic}")
                 st.rerun()
 
-# ---------- RIGHT: MANAGEMENT ----------
 # ---------- RIGHT: MANAGEMENT ----------
 with right:
     st.subheader("📜 Questionnaire & Data Management")
@@ -430,7 +429,7 @@ if client and st.button("Generate executive summaries (2 formats)"):
 
     Write a clear, reader-friendly summary (no numbers or scores).
     Focus on qualitative patterns — e.g., “morale is improving”, “frustrations are growing”.
-    For each part give 1-3 bullet points and overall make it less than 350 words
+    For each part give 1-3 bullet points and total summary need to be less than 250 words
 
     Include these four parts:
     1️⃣ Key morale issues and frustrations.
