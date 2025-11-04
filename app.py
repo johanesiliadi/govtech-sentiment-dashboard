@@ -69,11 +69,22 @@ def classify_text_batch_with_ai(df):
 
     msgs = "\n".join([f"{i+1}. {m}" for i, m in enumerate(df["message"].tolist()) if str(m).strip()])
     prompt = f"""
-    You are classifying multiple employee feedback messages.
+    You are classifying employee feedback messages by emotion and topic.
+
     For each line below, output one line in CSV format:
     sentiment,topic
+
     Sentiment ∈ [Positive, Negative, Neutral, Frustrated]
     Topic ∈ [Workload, Management Support, Work Environment, Communication, Growth, Others]
+
+    Classification Rules:
+    - If mixed emotions appear, choose the strongest emotion.
+    - Fatigue, exhaustion, burnout, or stress → "Frustrated".
+    - Complaints, dissatisfaction, or issues → "Negative".
+    - Only use "Neutral" if the tone is calm, factual, or emotionless.
+    - Only use "Positive" if the feedback is clearly upbeat or appreciative.
+    - When unsure, lean toward a more emotionally expressive category.
+
     Feedback messages:
     {msgs}
     """
@@ -419,7 +430,7 @@ if client and st.button("Generate executive summaries (2 formats)"):
 
     Write a clear, reader-friendly summary (no numbers or scores).
     Focus on qualitative patterns — e.g., “morale is improving”, “frustrations are growing”.
-    For each part give 1-3 bullet points
+    For each part give 1-3 bullet points and overall make it less than 350 words
 
     Include these four parts:
     1️⃣ Key morale issues and frustrations.
