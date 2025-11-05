@@ -35,8 +35,8 @@ st.markdown(
 )
 
 # ---------- HEADER ----------
-st.title("AI Sentiment & Feedback Tracker")
-st.caption("Proof of Concept — AI-powered employee sentiment monitoring, trend visualization & adaptive questionnaire generation")
+st.title("AI Sentiment & Feedback Dashboard")
+st.caption("Proof of Concept — AI-powered caseworker sentiment monitoring, trend visualization & adaptive questionnaire generation")
 
 st.info("🧭 **Flow:** ① Collect feedback → ② View sentiment trend → ③ Generate executive summaries & recommended actions → ④ Generate next questionnaire", icon="✨")
 
@@ -216,12 +216,12 @@ tabs = st.tabs(["📝 Feedback Collection", "📊 Sentiment Dashboard", "🧠 Ex
 # TAB 1 - FEEDBACK COLLECTION
 # ======================================================
 with tabs[0]:
-    st.subheader("📝 Employee Feedback Input")
+    st.subheader("📝 Caseworker Feedback Input")
 
     col1, col2 = st.columns([1.5, 1])
     with col1:
         with st.form("form", clear_on_submit=True):
-            name = st.text_input("Employee Name (optional)")
+            name = st.text_input("Caseworker Name (optional)")
             dept = st.selectbox("Division / Department", DIVISIONS)
             answers = [st.text_area(q, height=80) for q in st.session_state.questions]
             submitted = st.form_submit_button("Submit Feedback 🚀")
