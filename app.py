@@ -495,14 +495,14 @@ with tabs[3]:
 
         prompt += """
         Generate 5 concise questions (<20 words each) that create a balanced mix:
-        - 2 positive or uplifting questions (focus on wins, motivation, appreciation, or improvements)
+        - 2 positive or uplifting questions related to the positive themes to celebrate (focus on wins, motivation, appreciation, or improvements)
         - 2 follow-up questions targeting the main negative or frustrated themes (root causes or changes)
         - 1 reflective or forward-looking question (team morale or next steps)
 
         Guidelines:
         - Keep tone empathetic and conversational (avoid corporate phrasing).
         - Mix open-ended and short rating/yes-no style questions.
-        - Include at least one question checking whether recent improvements helped.
+        - Include at least one question checking whether recent improvements or management actions helped.
         - Avoid repeating or rephrasing earlier questions.
         - Number them 1–5.
         """
