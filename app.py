@@ -159,7 +159,7 @@ def update_sentiment_trend_per_run(df):
             last_time = pd.to_datetime(tdf["timestamp"].iloc[-1], errors="coerce")
             if not pd.isna(last_time):
                 seconds_since_last = (datetime.now() - last_time.to_pydatetime()).total_seconds()
-                if seconds_since_last < 120:
+                if seconds_since_last < 15:
                     return  # Skip update if last entry was within 2 minutes
 
     counts = df["sentiment"].value_counts().to_dict()
