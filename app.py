@@ -309,6 +309,47 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("📊 Sentiment Overview")
 
+    # ======= OVERALL MORALE HEADER (Top of Dashboard) ========
+    df_live = st.session_state.df.copy()
+    df_live["sentiment"] = df_live["sentiment"].apply(normalize_sentiment)
+    df_live = df_live[df_live["sentiment"].isin(ALLOWED_SENTIMENTS)]
+
+    if not df_live.empty:
+
+        counts = df_live["sentiment"].value_counts().to_dict()
+        total = sum(counts.values()) or 1
+        weighted_sum = sum(SENTIMENT_WEIGHTS.get(s, 0) * c for s, c in counts.items())
+        overall_score = weighted_sum / total
+
+        # Determine emoji and label
+        if overall_score >= 0.5:
+            emoji, label, color = "🌈", "Strongly Positive", "#21bf73"
+        elif overall_score >= 0:
+            emoji, label, color = "🙂", "Slightly Positive", "#a3e635"
+        elif overall_score > -0.5:
+            emoji, label, color = "😐", "Slightly Negative", "#fbbf24"
+        else:
+            emoji, label, color = "⚠️", "High Frustration", "#ef4444"
+
+        # Big banner card
+        st.markdown(f"""
+            <div style="
+                background: linear-gradient(90deg, {color}33, {color}11);
+                border-left: 10px solid {color};
+                padding: 20px 25px;
+                border-radius: 12px;
+                margin-bottom: 25px;
+            ">
+                <h1 style="margin:0; font-size:34px; color:#1e293b;">
+                    {emoji} {label}
+                </h1>
+                <p style="margin:5px 0 0 0; font-size:18px; color:#334155;">
+                    Current Morale Score:
+                    <b style="font-size:22px; color:{color};">{overall_score:.2f}</b>
+                </p>
+            </div>
+        """, unsafe_allow_html=True)
+
     df_live = st.session_state.df.copy()
     df_live["sentiment"] = df_live["sentiment"].apply(normalize_sentiment)
     df_live = df_live[df_live["sentiment"].isin(ALLOWED_SENTIMENTS)]
