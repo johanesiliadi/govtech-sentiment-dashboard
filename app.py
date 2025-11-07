@@ -251,7 +251,7 @@ with tabs[0]:
 
     with col2:
         st.subheader("📦 Upload Batch Responses")
-        st.markdown("Download the template from 'Next Questionanire tab'")
+        st.markdown("Download the template from 'Next Questionanire' tab")
         st.markdown("Upload completed CSV forms (auto-analyzed by AI).")
         uploaded_q = st.file_uploader("📤 Upload CSV", type=["csv"], key="upload_questionnaire_csv_auto")
         if uploaded_q is not None:
